@@ -8,6 +8,7 @@ services:
       ENV: development
       LOG_LEVEL: INFO
       CORS_ORIGINS: http://localhost:5173
+      API_KEY: ${API_KEY}
     ports:
       - "8000:8000"
     depends_on:

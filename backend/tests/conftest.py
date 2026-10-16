@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.auth import require_api_key
 from app.db import Base, get_session
 from app.main import app
 from app.queue import get_queue
@@ -53,6 +54,9 @@ async def client(
 
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_queue] = lambda: fake_queue
+    # Endpoint tests are about request/response behaviour, not auth, so skip
+    # the API key check here. Auth itself gets dedicated tests.
+    app.dependency_overrides[require_api_key] = lambda: None
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"

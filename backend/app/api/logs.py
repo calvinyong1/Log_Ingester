@@ -9,8 +9,9 @@ from app.db import get_session
 from app.models import LogEvent
 from app.queue import get_queue
 from app.schemas import LogEventAccepted, LogEventIn, LogEventOut, LogEventPage
+from app.auth import require_api_key
 
-router = APIRouter(prefix="/logs", tags=["logs"])
+router = APIRouter(prefix="/logs", tags=["logs"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("", response_model=LogEventAccepted, status_code=status.HTTP_202_ACCEPTED)

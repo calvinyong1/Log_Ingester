@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     env: str = "development"
     log_level: str = "INFO"
+    api_key: str | None = None
 
     # Comma-separated list of origins allowed to hit the API from a browser,
     # e.g. "http://localhost:5173,http://localhost:3000"
