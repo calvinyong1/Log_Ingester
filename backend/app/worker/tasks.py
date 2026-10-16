@@ -33,9 +33,9 @@ async def _process_log_event(
         message=payload["message"],
         timestamp=datetime.fromisoformat(payload["timestamp"]),
     )
-    async with session_factory() as session:
-        session.add(event)
-        await session.commit()
+    async with session_factory() as session: # Create a new  AsyncSession object
+        session.add(event) # Add the LogEvent to the session
+        await session.commit() # Commit the log event to Postgres
 
     tracker = ErrorRateTracker(redis_conn, window_seconds=settings.error_rate_window_seconds)
     counts = tracker.record(event.service, event.level)
