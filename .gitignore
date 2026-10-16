@@ -37,3 +37,16 @@ frontend/.vite/
 *.sqlite
 *.sqlite3
 *.db
+
+# Local notes (kept on disk, not published)
+PROGRESS.md
+
+# Test / coverage output
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+
+# Logs and build info
+*.log
+*.tsbuildinfo
