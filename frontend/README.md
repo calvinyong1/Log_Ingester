@@ -20,6 +20,3 @@ Requires the backend API running (see the repo root `README.md`); set
 - `npm run build` — typecheck + production build
 - `npm run test` — component tests (Vitest + Testing Library)
 - `npm run lint` — ESLint
-
-See `../PROGRESS.md` for design notes (why `POST /logs` is async, the
-severity→color mapping, etc.).

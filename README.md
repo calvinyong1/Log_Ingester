@@ -14,10 +14,10 @@ React dashboard.
 ## Status
 
 Backend, worker, and dashboard all work end to end locally via Docker
-Compose. AWS deploy hasn't happened yet — see `PROGRESS.md`.
+Compose. AWS deploy hasn't happened yet.
 
-- `POST /logs` — enqueues a log event onto Redis/RQ; returns `202` (no `id` — the worker persists it asynchronously)
-- `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`)
+- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` (no `id` — the worker persists it asynchronously)
+- `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`); open, so the browser dashboard needs no secret
 - `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold
 - Dashboard — live filtered feed, stacked-by-severity events-over-time chart, stat tiles
 - SQLAlchemy schema + Alembic migration for `log_events`
@@ -26,14 +26,23 @@ Compose. AWS deploy hasn't happened yet — see `PROGRESS.md`.
 ## Quickstart
 
 ```bash
+cp .env.example .env
+# put a real key in .env:
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
 docker compose up --build
 ```
 
-Then:
+`.env` (next to `docker-compose.yml`) is gitignored. Compose substitutes
+`API_KEY` from it into the `api` container. If it's missing or empty, every
+`POST /logs` is rejected with `401`.
+
+Then, with the same key exported in your shell (`export API_KEY=...`):
 
 ```bash
 # Ingest (202 — the worker persists it asynchronously)
 curl -X POST http://localhost:8000/logs \
+  -H "X-API-Key: $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"service":"auth-api","level":"ERROR","message":"boom","timestamp":"2026-04-25T12:00:00Z"}'
 
@@ -58,5 +67,3 @@ backend/    FastAPI app, worker, models, migrations, tests
 frontend/   Vite + React dashboard
 docker-compose.yml
 ```
-
-See `PROGRESS.md` for full design notes, caveats, and what's next.
