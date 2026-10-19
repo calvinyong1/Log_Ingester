@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
 from rq import Queue
@@ -24,7 +24,7 @@ async def ingest_log(
     payload: LogEventIn,
     queue: Queue = Depends(get_queue),
 ) -> LogEventAccepted:
-    timestamp = payload.timestamp or datetime.now(timezone.utc)
+    timestamp = payload.timestamp or datetime.now(UTC)
     queue.enqueue(
         "app.worker.tasks.process_log_event",
         {
