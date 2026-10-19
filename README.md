@@ -56,7 +56,7 @@ curl 'http://localhost:8000/logs?service=auth-api&level=ERROR&limit=10'
 ## Tests
 
 ```bash
-docker compose exec api uv run pytest -q   # backend
+cd backend && uv run pytest -q             # backend (dev deps aren't in the image)
 cd frontend && npm run test                 # frontend
 ```
 

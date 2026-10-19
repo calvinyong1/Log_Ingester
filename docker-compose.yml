@@ -20,7 +20,7 @@ services:
   worker:
     build:
       context: ./backend
-    command: ["sh", "-c", "uv run rq worker --url \"$$REDIS_URL\" ingest"]
+    command: ["sh", "-c", "uv run --no-dev rq worker --url \"$$REDIS_URL\" ingest"]
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/logs
       REDIS_URL: redis://redis:6379/0
