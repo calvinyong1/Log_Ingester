@@ -5,16 +5,21 @@ from rq import Queue
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_api_key
 from app.db import get_session
 from app.models import LogEvent
 from app.queue import get_queue
 from app.schemas import LogEventAccepted, LogEventIn, LogEventOut, LogEventPage
-from app.auth import require_api_key
 
-router = APIRouter(prefix="/logs", tags=["logs"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/logs", tags=["logs"])
 
 
-@router.post("", response_model=LogEventAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "",
+    response_model=LogEventAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_api_key)],
+)
 async def ingest_log(
     payload: LogEventIn,
     queue: Queue = Depends(get_queue),
