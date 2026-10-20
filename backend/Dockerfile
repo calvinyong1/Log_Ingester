@@ -30,5 +30,6 @@ USER appuser
 
 EXPOSE 8000
 
-# Apply migrations, then start uvicorn. Compose overrides this only if needed.
-CMD ["sh", "-c", "uv run --no-dev alembic upgrade head && uv run --no-dev uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migrations are a separate one-shot step (`uv run --no-dev alembic upgrade head`),
+# so scaling the API to several tasks can't race on schema changes.
+CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
