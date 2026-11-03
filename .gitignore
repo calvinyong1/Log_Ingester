@@ -38,8 +38,10 @@ frontend/.vite/
 *.sqlite3
 *.db
 
-# Local notes (kept on disk, not published)
+# Local notes and agent instructions (kept on disk, not published)
 PROGRESS.md
+CLAUDE.md
+backend/TODO.md
 
 # Test / coverage output
 .coverage
