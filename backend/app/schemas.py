@@ -37,3 +37,18 @@ class LogEventOut(BaseModel):
 class LogEventPage(BaseModel):
     items: list[LogEventOut]
     total: int
+
+
+class ServiceErrorRate(BaseModel):
+    service: str
+    total: int
+    errors: int
+    error_rate: float
+
+
+class ServiceErrorRates(BaseModel):
+    window_seconds: int
+    threshold: float
+    min_events: int
+    services: list[ServiceErrorRate]
+
