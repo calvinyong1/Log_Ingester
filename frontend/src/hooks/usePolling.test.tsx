@@ -52,4 +52,23 @@ describe('usePolling', () => {
     rerender({ paused: false })
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
   })
+
+  it('refetches once when the key changes, even while paused', async () => {
+    const fetcher = vi.fn().mockResolvedValue('ok')
+    const { rerender } = renderHook(
+      ({ paused, key }) => usePolling(fetcher, { paused, key, intervalMs: 1000 }),
+      { initialProps: { paused: false, key: 'a' } },
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+
+    rerender({ paused: true, key: 'a' })
+    await act(() => vi.advanceTimersByTimeAsync(2000))
+    expect(fetcher).toHaveBeenCalledTimes(1)
+
+    rerender({ paused: true, key: 'b' })
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
 })

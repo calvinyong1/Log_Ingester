@@ -13,6 +13,9 @@ export interface PollingResult<T> {
 interface PollingOptions {
   paused?: boolean
   intervalMs?: number
+  // Identifies the query (filters, page). A change refetches right away, even
+  // while paused, so a user action never leaves stale data on screen.
+  key?: string
 }
 
 /**
@@ -22,7 +25,7 @@ interface PollingOptions {
  */
 export function usePolling<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
-  { paused = false, intervalMs = POLL_INTERVAL_MS }: PollingOptions = {},
+  { paused = false, intervalMs = POLL_INTERVAL_MS, key = '' }: PollingOptions = {},
 ): PollingResult<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
@@ -35,8 +38,12 @@ export function usePolling<T>(
   const fetcherRef = useRef(fetcher)
   fetcherRef.current = fetcher
 
+  const lastKey = useRef(key)
+
   useEffect(() => {
-    if (paused) return
+    const keyChanged = lastKey.current !== key
+    lastKey.current = key
+    if (paused && !keyChanged) return
     let cancelled = false
     const controller = new AbortController()
 
@@ -60,13 +67,13 @@ export function usePolling<T>(
     }
 
     load()
-    const interval = setInterval(load, intervalMs)
+    const interval = paused ? null : setInterval(load, intervalMs)
     return () => {
       cancelled = true
       controller.abort()
-      clearInterval(interval)
+      if (interval) clearInterval(interval)
     }
-  }, [paused, intervalMs])
+  }, [paused, intervalMs, key])
 
   return { data, loading, refreshing, error, lastUpdated }
 }
