@@ -2,7 +2,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -71,43 +70,44 @@ export function ErrorRateChart({ events, filters }: ErrorRateChartProps) {
     <div className="chart-card">
       <div className="chart-card__header">
         <h2>Events over time</h2>
-        <span className="chart-card__subtitle">by level, {LEVEL_STACK_ORDER.length}-level severity</span>
+        <ul className="chart-legend">
+          {LEVEL_STACK_ORDER.map((level) => (
+            <li key={level}>
+              <span
+                className="chart-legend__swatch"
+                style={{ background: LEVEL_COLOR[level] }}
+                aria-hidden="true"
+              />
+              {level}
+            </li>
+          ))}
+        </ul>
       </div>
       {!hasData ? (
         <div className="chart-card__empty">No events in this window yet.</div>
       ) : (
-        <ResponsiveContainer width="100%" height={320}>
+        <ResponsiveContainer width="100%" height={220}>
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--gridline)" strokeDasharray="0" />
+            <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="0" />
             <XAxis
               dataKey="time"
               type="number"
               domain={['dataMin', 'dataMax']}
               tickFormatter={formatTick}
-              stroke="var(--baseline)"
-              tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+              stroke="var(--border)"
+              tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
               tickLine={false}
-              axisLine={{ stroke: 'var(--baseline)' }}
+              axisLine={{ stroke: 'var(--border)' }}
             />
             <YAxis
               allowDecimals={false}
-              stroke="var(--baseline)"
-              tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+              stroke="var(--border)"
+              tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
               tickLine={false}
               axisLine={false}
               width={32}
             />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--gridline)', opacity: 0.4 }} />
-            <Legend
-              verticalAlign="top"
-              align="right"
-              height={32}
-              iconType="square"
-              iconSize={10}
-              formatter={(value: string) => (
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{value}</span>
-              )}
-            />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-inset)', opacity: 0.6 }} />
             {LEVEL_STACK_ORDER.map((level, i) => (
               <Bar
                 key={level}
@@ -115,8 +115,8 @@ export function ErrorRateChart({ events, filters }: ErrorRateChartProps) {
                 name={level}
                 stackId="events"
                 fill={LEVEL_COLOR[level]}
-                stroke="var(--surface-1)"
-                strokeWidth={2}
+                stroke="var(--bg-surface)"
+                strokeWidth={1}
                 barSize={20}
                 radius={i === LEVEL_STACK_ORDER.length - 1 ? [4, 4, 0, 0] : 0}
                 isAnimationActive={false}

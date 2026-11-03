@@ -18,18 +18,13 @@ export function StatTiles({ events, total }: StatTilesProps) {
       </div>
       <div className="stat-tile">
         <span className="stat-tile__label">Errors + critical</span>
-        <span className="stat-tile__value" style={{ color: 'var(--status-serious)' }}>
+        <span className="stat-tile__value" style={{ color: 'var(--level-error)' }}>
           {errors.toLocaleString()}
         </span>
       </div>
       <div className="stat-tile">
         <span className="stat-tile__label">Error rate</span>
-        <span
-          className="stat-tile__value"
-          style={{ color: errorRate >= 0.5 ? 'var(--status-critical)' : 'var(--text-primary)' }}
-        >
-          {(errorRate * 100).toFixed(1)}%
-        </span>
+        <span className="stat-tile__value">{(errorRate * 100).toFixed(1)}%</span>
         <span className="stat-tile__sub">of loaded events</span>
       </div>
     </div>

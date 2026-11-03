@@ -11,10 +11,18 @@ const RANGE_PRESETS: { label: string; minutes: number | null }[] = [
 
 interface FilterBarProps {
   filters: LogFilters
+  services: string[]
   onChange: (filters: LogFilters) => void
 }
 
-export function FilterBar({ filters, onChange }: FilterBarProps) {
+export function FilterBar({ filters, services, onChange }: FilterBarProps) {
+  // Until the list loads (or if it fails), keep the selected service as an
+  // option so the select never shows a value it can't represent.
+  const options =
+    filters.service && !services.includes(filters.service)
+      ? [filters.service, ...services]
+      : services
+
   return (
     <div className="filter-bar" role="group" aria-label="Filters">
       <div className="filter-bar__presets">
@@ -23,7 +31,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
             key={preset.label}
             type="button"
             className="preset-button"
-            data-active={filters.rangeMinutes === preset.minutes}
+            aria-pressed={filters.rangeMinutes === preset.minutes}
             onClick={() => onChange({ ...filters, rangeMinutes: preset.minutes })}
           >
             {preset.label}
@@ -34,12 +42,17 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
       <div className="filter-bar__fields">
         <label className="filter-field">
           <span>Service</span>
-          <input
-            type="text"
-            placeholder="All services"
+          <select
             value={filters.service}
             onChange={(e) => onChange({ ...filters, service: e.target.value })}
-          />
+          >
+            <option value="">All services ({services.length})</option>
+            {options.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="filter-field">

@@ -30,10 +30,10 @@ describe('App', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
+      vi.fn().mockImplementation(async (url: string) => ({
         ok: true,
-        json: async () => SAMPLE_PAGE,
-      }),
+        json: async () => (url.includes('/logs/services') ? ['auth-api', 'checkout'] : SAMPLE_PAGE),
+      })),
     )
   })
 
@@ -68,13 +68,14 @@ describe('App', () => {
 
     await screen.findByText('payment gateway timeout')
 
-    const serviceInput = screen.getByLabelText('Service')
-    await user.type(serviceInput, 'checkout')
+    const serviceSelect = screen.getByLabelText('Service')
+    await screen.findByRole('option', { name: 'checkout' })
+    await user.selectOptions(serviceSelect, 'checkout')
 
     await waitFor(() => {
       const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls
-      const lastUrl = calls[calls.length - 1][0] as string
-      expect(lastUrl).toContain('service=checkout')
+      const logCalls = calls.map((c) => c[0] as string).filter((u) => u.includes('/logs?'))
+      expect(logCalls[logCalls.length - 1]).toContain('service=checkout')
     })
   })
 

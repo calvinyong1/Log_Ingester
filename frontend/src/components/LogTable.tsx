@@ -23,12 +23,13 @@ export function LogTable({ events }: LogTableProps) {
   return (
     <div className="log-table-wrapper">
       <table className="log-table">
+        <caption className="visually-hidden">Most recent log events</caption>
         <thead>
           <tr>
             <th>Level</th>
             <th>Service</th>
             <th>Message</th>
-            <th>Timestamp</th>
+            <th>Time</th>
           </tr>
         </thead>
         <tbody>
@@ -44,7 +45,7 @@ export function LogTable({ events }: LogTableProps) {
                   {event.level}
                 </span>
               </td>
-              <td>{event.service}</td>
+              <td className="log-table__service">{event.service}</td>
               <td className="log-table__message">{event.message}</td>
               <td className="log-table__time">{formatTime(event.timestamp)}</td>
             </tr>
