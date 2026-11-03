@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import LogEvent
-from app.worker.tasks import _process_log_event
+from app.worker.tasks import process_log_event
 
 
 def _payload(service: str = "svc", level: str = "INFO", message: str = "hi") -> dict:
@@ -18,12 +18,12 @@ def _payload(service: str = "svc", level: str = "INFO", message: str = "hi") -> 
     }
 
 
-async def test_process_log_event_persists_to_db(
+async def testprocess_log_event_persists_to_db(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     redis_conn = fakeredis.FakeStrictRedis()
 
-    await _process_log_event(
+    await process_log_event(
         _payload(service="checkout"),
         session_factory=session_factory,
         redis_conn=redis_conn,
@@ -44,7 +44,7 @@ async def test_low_volume_does_not_alert(
 
     # Default error_rate_min_events is 5 — 3 errors shouldn't be enough to alert.
     for _ in range(3):
-        await _process_log_event(
+        await process_log_event(
             _payload(service="checkout", level="ERROR"),
             session_factory=session_factory,
             redis_conn=redis_conn,
@@ -62,7 +62,7 @@ async def test_error_rate_above_threshold_triggers_alert(
 
     # Default: min_events=5, threshold=0.5 -> 3/5 errors should trip it.
     for level in ["ERROR", "ERROR", "ERROR", "INFO", "INFO"]:
-        await _process_log_event(
+        await process_log_event(
             _payload(service="checkout", level=level),
             session_factory=session_factory,
             redis_conn=redis_conn,
@@ -82,7 +82,7 @@ async def test_alert_respects_cooldown(
     monkeypatch.setattr("app.worker.tasks.send_alert", lambda **kwargs: alerts.append(kwargs))
 
     for _ in range(10):
-        await _process_log_event(
+        await process_log_event(
             _payload(service="checkout", level="ERROR"),
             session_factory=session_factory,
             redis_conn=redis_conn,

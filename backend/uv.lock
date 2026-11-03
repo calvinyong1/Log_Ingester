@@ -430,7 +430,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "redis", specifier = ">=5.0" },
-    { name = "rq", specifier = ">=1.16" },
+    { name = "rq", specifier = ">=2.10" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]

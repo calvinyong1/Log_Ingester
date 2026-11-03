@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -11,18 +10,14 @@ from app.worker.alerts import send_alert
 from app.worker.rate_limiter import ErrorRateTracker
 
 
-def process_log_event(payload: dict) -> None:
-    """RQ entrypoint. RQ calls jobs synchronously, so this just drives the
-    async DB/session machinery shared with the API."""
-    asyncio.run(_process_log_event(payload))
-
-
-async def _process_log_event(
+async def process_log_event(
     payload: dict,
     *,
     session_factory: async_sessionmaker | None = None,
     redis_conn=None,
 ) -> None:
+    # Enqueued by dotted path as a coroutine function: RQ (>=2.10) runs it with
+    # asyncio.run() per job, which is only safe under the forking `rq worker`.
     settings = get_settings()
     session_factory = session_factory or SessionLocal
     redis_conn = redis_conn or get_redis_connection()
