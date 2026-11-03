@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 export async function fetchLogs(
   filters: LogFilters,
-  { limit = 200, signal }: { limit?: number; signal?: AbortSignal } = {},
+  { limit = 200, offset = 0, signal }: { limit?: number; offset?: number; signal?: AbortSignal } = {},
 ): Promise<LogEventPage> {
   const params = new URLSearchParams()
   if (filters.service) params.set('service', filters.service)
@@ -14,6 +14,7 @@ export async function fetchLogs(
     params.set('start', start.toISOString())
   }
   params.set('limit', String(limit))
+  if (offset > 0) params.set('offset', String(offset))
 
   const res = await fetch(`${API_URL}/logs?${params.toString()}`, { signal })
   if (!res.ok) {
