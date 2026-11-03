@@ -42,6 +42,14 @@ async def ingest_log(
     )
 
 
+@router.get("/services", response_model=list[str])
+async def list_services(session: AsyncSession = Depends(get_session)) -> list[str]:
+    result = await session.execute(
+        select(LogEvent.service).distinct().order_by(LogEvent.service)
+    )
+    return list(result.scalars().all())
+
+
 @router.get("", response_model=LogEventPage)
 async def list_logs(
     service: str | None = None,

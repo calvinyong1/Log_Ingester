@@ -112,3 +112,10 @@ async def test_get_logs_does_not_require_key(
     # Reads are public so the browser dashboard works without a secret.
     r = await auth_client.get("/logs")
     assert r.status_code == 200
+
+
+async def test_get_services_needs_no_key(
+    auth_client: AsyncClient, configured_key: str
+) -> None:
+    r = await auth_client.get("/logs/services")
+    assert r.status_code == 200

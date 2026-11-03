@@ -150,3 +150,28 @@ async def test_health(client: AsyncClient) -> None:
     r = await client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+async def test_list_services_empty(client: AsyncClient) -> None:
+    r = await client.get("/logs/services")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+async def test_list_services_is_distinct_and_sorted(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    for service in ["checkout", "auth-api", "checkout", "billing", "auth-api"]:
+        await _seed(
+            session_factory,
+            service=service,
+            level="INFO",
+            message="m",
+            timestamp="2026-04-25T12:00:00Z",
+        )
+
+    r = await client.get("/logs/services")
+    assert r.status_code == 200
+    assert r.json() == ["auth-api", "billing", "checkout"]
+
+
