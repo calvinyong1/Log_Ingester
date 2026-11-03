@@ -1,13 +1,6 @@
 import type { LogFilters, LogLevel } from '../types'
+import { RANGE_PRESETS } from '../ranges'
 import { LOG_LEVELS } from '../types'
-
-const RANGE_PRESETS: { label: string; minutes: number | null }[] = [
-  { label: 'Last 5 min', minutes: 5 },
-  { label: 'Last 15 min', minutes: 15 },
-  { label: 'Last 1 hour', minutes: 60 },
-  { label: 'Last 24 hours', minutes: 60 * 24 },
-  { label: 'All', minutes: null },
-]
 
 interface FilterBarProps {
   filters: LogFilters

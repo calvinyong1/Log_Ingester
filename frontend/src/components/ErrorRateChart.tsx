@@ -7,13 +7,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { bucketEvents } from '../bucketEvents'
 import { LEVEL_COLOR, LEVEL_STACK_ORDER } from '../levelStyle'
-import type { LogEvent, LogFilters } from '../types'
+import type { LogHistogram } from '../types'
 
 interface ErrorRateChartProps {
-  events: LogEvent[]
-  filters: LogFilters
+  histogram: LogHistogram | null
 }
 
 function formatTick(ms: number): string {
@@ -61,10 +59,12 @@ function ChartTooltip({
   )
 }
 
-export function ErrorRateChart({ events, filters }: ErrorRateChartProps) {
-  const buckets = bucketEvents(events, filters.rangeMinutes)
-  const data = buckets.map((b) => ({ time: b.start, ...b.counts }))
-  const hasData = buckets.some((b) => b.total > 0)
+export function ErrorRateChart({ histogram }: ErrorRateChartProps) {
+  const data = (histogram?.buckets ?? []).map((b) => ({
+    time: new Date(b.start).getTime(),
+    ...b.counts,
+  }))
+  const hasData = (histogram?.total ?? 0) > 0
 
   return (
     <div className="chart-card">
