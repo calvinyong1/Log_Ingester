@@ -52,3 +52,13 @@ class ServiceErrorRates(BaseModel):
     min_events: int
     services: list[ServiceErrorRate]
 
+
+class HistogramBucket(BaseModel):
+    start: datetime
+    end: datetime
+    counts: dict[LogLevel, int]
+
+
+class LogHistogram(BaseModel):
+    buckets: list[HistogramBucket]
+    total: int
