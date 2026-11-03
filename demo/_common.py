@@ -16,120 +16,52 @@ import urllib.request
 from collections import Counter
 from collections.abc import Callable
 
-# An e-commerce platform. `weight` is the relative share of traffic, so the
-# gateway sees far more events than the back-office services behind it.
-SERVICES: dict[str, dict] = {
-    "api-gateway": {
-        "weight": 30,
-        "messages": {
-            "DEBUG": ["route matched /v2/{path} -> {upstream}"],
-            "INFO": ["GET /v2/{path} 200 in {ms}ms", "POST /v2/{path} 201 in {ms}ms"],
-            "WARNING": [
-                "upstream {upstream} slow: {ms}ms",
-                "rate limit near cap for client {client}",
-            ],
-            "ERROR": ["upstream {upstream} returned 502", "request {req} timed out after {ms}ms"],
-            "CRITICAL": ["all upstreams unhealthy for route /v2/{path}"],
-        },
-    },
-    "auth-service": {
-        "weight": 18,
-        "messages": {
-            "DEBUG": ["token cache hit for user {user}"],
-            "INFO": ["login ok for user {user}", "refresh token issued for user {user}"],
-            "WARNING": [
-                "failed login attempt for user {user}",
-                "token for user {user} expires in 60s",
-            ],
-            "ERROR": [
-                "identity provider call failed: connection reset",
-                "could not sign token for user {user}",
-            ],
-            "CRITICAL": ["signing key unavailable, rejecting all logins"],
-        },
-    },
-    "user-service": {
-        "weight": 10,
-        "messages": {
-            "DEBUG": ["profile cache miss for user {user}"],
-            "INFO": ["profile loaded for user {user} in {ms}ms", "address updated for user {user}"],
-            "WARNING": ["profile query slow for user {user}: {ms}ms"],
-            "ERROR": ["failed to load profile for user {user}: db timeout"],
-            "CRITICAL": ["user database connection pool exhausted"],
-        },
-    },
-    "search-service": {
-        "weight": 12,
-        "messages": {
-            "DEBUG": ["query plan cached for '{term}'"],
-            "INFO": ["query '{term}' returned {n} results in {ms}ms"],
-            "WARNING": ["query '{term}' returned no results", "index shard {n} lagging {ms}ms"],
-            "ERROR": ["timeout talking to index for query '{term}'"],
-            "CRITICAL": ["search index unreachable"],
-        },
-    },
-    "inventory-service": {
-        "weight": 8,
-        "messages": {
-            "DEBUG": ["stock check sku {sku}"],
-            "INFO": ["reserved {n} units of sku {sku}", "stock synced from warehouse in {ms}ms"],
-            "WARNING": ["low stock for sku {sku}: {n} left"],
-            "ERROR": ["failed to reserve sku {sku}: version conflict"],
-            "CRITICAL": ["warehouse sync failed, stock levels may be stale"],
-        },
-    },
-    "order-service": {
-        "weight": 9,
-        "messages": {
-            "DEBUG": ["order {order} state pending -> confirmed"],
-            "INFO": ["order {order} created for user {user}", "order {order} shipped"],
-            "WARNING": ["order {order} awaiting payment for {ms}ms"],
-            "ERROR": ["failed to persist order {order}", "order {order} stuck in pending"],
-            "CRITICAL": ["order write path unavailable"],
-        },
-    },
-    "payment-service": {
-        "weight": 8,
-        "messages": {
-            "DEBUG": ["payment {pay} routed to processor"],
-            "INFO": ["payment {pay} captured for order {order}", "refund issued for order {order}"],
-            "WARNING": ["payment {pay} retried, attempt {n}", "processor latency high: {ms}ms"],
-            "ERROR": [
-                "payment {pay} declined: processor unavailable",
-                "card processor timeout for order {order}",
-            ],
-            "CRITICAL": ["payment processor down, queueing charges"],
-        },
-    },
-    "notification-service": {
-        "weight": 5,
-        "messages": {
-            "DEBUG": ["template order_confirmation rendered"],
-            "INFO": ["email sent to user {user}", "push notification delivered to user {user}"],
-            "WARNING": ["email provider throttling, backing off {ms}ms"],
-            "ERROR": ["failed to send email to user {user}: smtp 451"],
-            "CRITICAL": ["notification queue not draining"],
-        },
-    },
+# A small e-commerce platform: (traffic weight, one message template per level).
+# Weights are relative, so the gateway sees most events.
+SERVICES: dict[str, tuple[int, dict[str, str]]] = {
+    "api-gateway": (35, {
+        "DEBUG": "route matched for request {req}",
+        "INFO": "GET /orders 200 in {ms}ms",
+        "WARNING": "upstream slow: {ms}ms",
+        "ERROR": "upstream returned 502 for request {req}",
+        "CRITICAL": "all upstreams unhealthy",
+    }),
+    "auth-service": (20, {
+        "DEBUG": "token cache hit for user {user}",
+        "INFO": "login ok for user {user}",
+        "WARNING": "failed login attempt for user {user}",
+        "ERROR": "could not sign token for user {user}",
+        "CRITICAL": "signing key unavailable",
+    }),
+    "order-service": (20, {
+        "DEBUG": "order {order} state pending -> confirmed",
+        "INFO": "order {order} created for user {user}",
+        "WARNING": "order {order} awaiting payment for {ms}ms",
+        "ERROR": "failed to persist order {order}",
+        "CRITICAL": "order write path unavailable",
+    }),
+    "payment-service": (15, {
+        "DEBUG": "payment routed to processor for order {order}",
+        "INFO": "payment captured for order {order}",
+        "WARNING": "processor latency high: {ms}ms",
+        "ERROR": "payment declined for order {order}: processor unavailable",
+        "CRITICAL": "payment processor down",
+    }),
+    "notification-service": (10, {
+        "DEBUG": "email template rendered",
+        "INFO": "email sent to user {user}",
+        "WARNING": "email provider throttling, backing off {ms}ms",
+        "ERROR": "failed to send email to user {user}: smtp 451",
+        "CRITICAL": "notification queue not draining",
+    }),
 }
-
-_PATHS = ["products", "cart", "orders", "users/me", "search", "checkout"]
-_UPSTREAMS = ["order-service", "user-service", "search-service", "inventory-service"]
-_TERMS = ["running shoes", "usb-c cable", "desk lamp", "coffee grinder", "backpack"]
 
 
 def _fields(rng: random.Random) -> dict:
     return {
-        "path": rng.choice(_PATHS),
-        "upstream": rng.choice(_UPSTREAMS),
-        "term": rng.choice(_TERMS),
         "ms": rng.randint(4, 900),
-        "n": rng.randint(1, 40),
         "user": f"u_{rng.randint(1000, 9999)}",
         "order": f"ord_{rng.randint(10000, 99999)}",
-        "pay": f"pay_{rng.randint(10000, 99999)}",
-        "sku": f"SKU-{rng.randint(100, 999)}",
-        "client": f"client_{rng.randint(1, 50)}",
         "req": f"req_{rng.randint(100000, 999999)}",
     }
 
@@ -143,7 +75,7 @@ def pick_level(rng: random.Random, error_rate: float) -> str:
 
 def build_event(rng: random.Random, service: str, error_rate: float) -> dict:
     level = pick_level(rng, error_rate)
-    template = rng.choice(SERVICES[service]["messages"][level])
+    template = SERVICES[service][1][level]
     return {"service": service, "level": level, "message": template.format(**_fields(rng))}
 
 
@@ -181,7 +113,7 @@ def run(description: str, error_rates: Callable[[str], float]) -> None:
 
     rng = random.Random(args.seed)
     names = list(SERVICES)
-    weights = [SERVICES[n]["weight"] for n in names]
+    weights = [SERVICES[n][0] for n in names]
     sent: Counter[str] = Counter()
     consecutive_failures = 0
     deadline = time.monotonic() + args.duration if args.duration else None
