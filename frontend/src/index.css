@@ -34,6 +34,7 @@ body {
   --level-critical: #e5484d;
 
   --alert-fg: #ff9a9d;
+  --alert-fg-strong: #ffb3b5;
   --alert-bg: #2a1a1f;
   --alert-border: #6b2a30;
   --ok-fg: #7fd9a6;
