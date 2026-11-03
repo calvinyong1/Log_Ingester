@@ -21,3 +21,28 @@ export interface LogFilters {
   level: LogLevel | ''
   rangeMinutes: number | null // null = no lower bound ("All")
 }
+
+export interface ServiceErrorRate {
+  service: string
+  total: number
+  errors: number
+  error_rate: number
+}
+
+export interface ServiceErrorRates {
+  window_seconds: number
+  threshold: number
+  min_events: number
+  services: ServiceErrorRate[]
+}
+
+export interface HistogramBucket {
+  start: string
+  end: string
+  counts: Record<LogLevel, number>
+}
+
+export interface LogHistogram {
+  buckets: HistogramBucket[]
+  total: number
+}
