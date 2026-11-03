@@ -117,6 +117,8 @@ function App() {
             windowSeconds={rates.data?.window_seconds ?? 0}
             minEvents={rates.data?.min_events ?? 0}
             error={rates.error !== null}
+            selected={filters.service}
+            onSelect={(service) => changeFilters({ ...filters, service })}
           />
           <div className="app__content">
             <StatTiles

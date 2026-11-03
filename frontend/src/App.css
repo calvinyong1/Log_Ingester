@@ -535,11 +535,36 @@
 }
 
 .service-row {
+  border-top: 1px solid var(--border);
+}
+
+.service-row__button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
   padding: 14px 16px;
-  border-top: 1px solid var(--border);
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.service-row__button:hover {
+  background: var(--bg-inset);
+}
+
+.service-row__button:focus-visible {
+  outline: 2px solid var(--text-muted);
+  outline-offset: -2px;
+}
+
+.service-row__button--selected {
+  border-left-color: var(--text);
+  background: var(--bg-inset);
 }
 
 .service-row__head,
@@ -589,6 +614,7 @@
 }
 
 .rate-bar {
+  display: block;
   position: relative;
   height: 8px;
   border-radius: 4px;
@@ -596,6 +622,7 @@
 }
 
 .rate-bar__fill {
+  display: block;
   height: 100%;
   border-radius: 4px;
   background: var(--text-muted);

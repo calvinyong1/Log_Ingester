@@ -157,6 +157,25 @@ describe('App', () => {
     expect(within(tile).getByText('1 of 4')).toBeInTheDocument()
   })
 
+  it('filters to a service when its rail row is clicked, and clears on a second click', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const rail = await screen.findByRole('region', { name: 'Services' })
+    await screen.findByRole('option', { name: 'checkout' })
+
+    const row = await within(rail).findByRole('button', { name: /checkout/ })
+    expect(row).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(row)
+    await waitFor(() => expect(logUrls().at(-1)).toContain('service=checkout'))
+    expect(row).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Service')).toHaveValue('checkout')
+
+    await user.click(row)
+    await waitFor(() => expect(logUrls().at(-1)).not.toContain('service='))
+    expect(row).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('pages with limit and offset, and resets to the first page on a filter change', async () => {
     const user = userEvent.setup()
     page = { ...SAMPLE_PAGE, total: 60 }
