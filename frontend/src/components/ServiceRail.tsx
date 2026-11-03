@@ -53,7 +53,13 @@ export function ServiceRail({
                 {/* Spans, not divs: a button may only contain phrasing content. */}
                 <button
                   type="button"
-                  className={`service-row__button${isSelected ? ' service-row__button--selected' : ''}`}
+                  className={[
+                    'service-row__button',
+                    isSelected && 'service-row__button--selected',
+                    row.state === 'Alerting' && 'service-row__button--alerting',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   aria-pressed={isSelected}
                   title={isSelected ? 'Show all services' : `Show only ${row.service}`}
                   onClick={() => onSelect(isSelected ? '' : row.service)}

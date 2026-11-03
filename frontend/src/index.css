@@ -36,6 +36,7 @@ body {
   --alert-fg: #ff9a9d;
   --alert-fg-strong: #ffb3b5;
   --alert-bg: #2a1a1f;
+  --alert-bg-hover: #3d2229;
   --alert-border: #6b2a30;
   --ok-fg: #7fd9a6;
   --ok-bg: #13261c;

@@ -567,6 +567,26 @@
   background: var(--bg-inset);
 }
 
+/* Alerting rows stay red; hover and selected use the lighter red. Declared
+   after the generic rules so they win at equal specificity. */
+.service-row__button--alerting {
+  background: var(--alert-bg);
+}
+
+.service-row__button--alerting:hover,
+.service-row__button--alerting.service-row__button--selected {
+  background: var(--alert-bg-hover);
+}
+
+.service-row__button--alerting.service-row__button--selected {
+  border-left-color: var(--alert-fg);
+}
+
+/* The chip shares the row's idle background, so give it a fill of its own. */
+.service-row__button--alerting .state-chip--alerting {
+  background: var(--alert-border);
+}
+
 .service-row__head,
 .service-row__foot {
   display: flex;

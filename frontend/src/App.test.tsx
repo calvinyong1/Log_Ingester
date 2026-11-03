@@ -152,6 +152,12 @@ describe('App', () => {
     expect(within(rowOf('search')).getByText('Low volume')).toBeInTheDocument()
     expect(within(rowOf('ghost')).getByText('No recent events')).toBeInTheDocument()
 
+    // Only the alerting row gets the red highlight class.
+    const buttonOf = (name: string) => rowOf(name).querySelector('button') as HTMLElement
+    expect(buttonOf('checkout')).toHaveClass('service-row__button--alerting')
+    expect(buttonOf('auth-api')).not.toHaveClass('service-row__button--alerting')
+    expect(buttonOf('search')).not.toHaveClass('service-row__button--alerting')
+
     // "Services alerting" tile counts only the Alerting service.
     const tile = screen.getByText('Services alerting').parentElement as HTMLElement
     expect(within(tile).getByText('1 of 4')).toBeInTheDocument()
