@@ -1,4 +1,4 @@
-# Log Anomaly Detection
+# Log Monitor
 
 Real-time log monitoring service: ingest application logs over HTTP, store them in
 Postgres, detect anomalies via a Redis/RQ worker, and visualise the stream in a

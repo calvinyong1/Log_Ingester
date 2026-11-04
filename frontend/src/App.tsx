@@ -84,7 +84,7 @@ function App() {
             </svg>
           </div>
           <div>
-            <h1>Log Anomaly Detection</h1>
+            <h1>Log Monitor</h1>
             <p className="app__subtitle">
               Ingestion is worker-backed, so new events can take a moment to appear.
             </p>

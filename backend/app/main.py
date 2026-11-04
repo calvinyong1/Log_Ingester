@@ -12,7 +12,7 @@ from app.queue import get_redis_connection
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Log Anomaly Detection",
+        title="Log Monitor",
         version="0.1.0",
         description="Ingest, store, and detect anomalies in application logs.",
     )

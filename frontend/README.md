@@ -1,4 +1,4 @@
-# Log Anomaly Detection — dashboard
+# Log Monitor — dashboard
 
 Vite + React + TypeScript. Polls `GET /logs` on the backend, renders a live
 event feed, a stacked-by-severity time chart, and filters (service, level,
