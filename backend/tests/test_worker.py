@@ -18,7 +18,7 @@ def _payload(service: str = "svc", level: str = "INFO", message: str = "hi") -> 
     }
 
 
-async def testprocess_log_event_persists_to_db(
+async def test_process_log_event_persists_to_db(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     redis_conn = fakeredis.FakeStrictRedis()
