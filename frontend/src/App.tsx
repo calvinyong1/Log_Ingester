@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { AlertHistory } from './components/AlertHistory'
 import { ErrorRateChart } from './components/ErrorRateChart'
 import { FilterBar } from './components/FilterBar'
 import { LogTable } from './components/LogTable'
@@ -7,6 +8,7 @@ import { Pagination } from './components/Pagination'
 import { ServiceRail } from './components/ServiceRail'
 import { StatTiles } from './components/StatTiles'
 import { StatusPill } from './components/StatusPill'
+import { useAlerts } from './hooks/useAlerts'
 import { useErrorRates } from './hooks/useErrorRates'
 import { useHistogram } from './hooks/useHistogram'
 import { PAGE_SIZE, useLogs } from './hooks/useLogs'
@@ -30,6 +32,7 @@ function App() {
   const histogram = useHistogram(filters, { paused })
   const { data: services } = useServices({ paused })
   const rates = useErrorRates({ paused })
+  const alertHistory = useAlerts(filters.service, { paused })
 
   const items = logs.data?.items ?? []
   const total = logs.data?.total ?? 0
@@ -111,15 +114,22 @@ function App() {
         <div className="app__loading">Loading…</div>
       ) : (
         <div className="app__columns">
-          <ServiceRail
-            rows={rows}
-            threshold={rates.data?.threshold ?? 0}
-            windowSeconds={rates.data?.window_seconds ?? 0}
-            minEvents={rates.data?.min_events ?? 0}
-            error={rates.error !== null}
-            selected={filters.service}
-            onSelect={(service) => changeFilters({ ...filters, service })}
-          />
+          <div className="app__side">
+            <ServiceRail
+              rows={rows}
+              threshold={rates.data?.threshold ?? 0}
+              windowSeconds={rates.data?.window_seconds ?? 0}
+              minEvents={rates.data?.min_events ?? 0}
+              error={rates.error !== null}
+              selected={filters.service}
+              onSelect={(service) => changeFilters({ ...filters, service })}
+            />
+            <AlertHistory
+              alerts={alertHistory.data}
+              service={filters.service}
+              error={alertHistory.error !== null}
+            />
+          </div>
           <div className="app__content">
             <StatTiles
               histogram={histogram.data}

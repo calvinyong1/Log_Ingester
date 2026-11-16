@@ -667,6 +667,145 @@
   background: var(--text-muted);
 }
 
+/* Alert history */
+
+.app__side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.alert-history {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.alert-history h2 {
+  margin: 16px 16px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.alert-history__hint,
+.alert-history__empty {
+  margin: 4px 16px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.alert-history__empty {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.alert-history__more {
+  margin-top: 12px;
+}
+
+.alert-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.alert-item {
+  border-top: 1px solid var(--border);
+}
+
+.alert-item__button {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-left: 3px solid var(--alert-border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alert-item__button:hover,
+.alert-item__button--open {
+  background: var(--bg-inset);
+}
+
+.alert-item__button:focus-visible {
+  outline: 2px solid var(--text-muted);
+  outline-offset: -2px;
+}
+
+.alert-item__head,
+.alert-item__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-item__service {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.alert-item__rate {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--alert-fg);
+}
+
+.alert-item__foot {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.alert-events {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px 8px;
+  background: var(--bg-inset);
+}
+
+.alert-events__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.alert-events__item:first-child {
+  border-top: 0;
+}
+
+.alert-events__message {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.alert-events__time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.alert-events__note {
+  margin: 0;
+  padding: 8px 16px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-inset);
+}
+
 /* Pagination */
 
 .pagination {

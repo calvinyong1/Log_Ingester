@@ -46,3 +46,19 @@ export interface LogHistogram {
   buckets: HistogramBucket[]
   total: number
 }
+
+export interface Alert {
+  id: number
+  service: string
+  fired_at: string
+  window_seconds: number
+  total: number
+  errors: number
+  error_rate: number
+  threshold: number
+}
+
+export interface AlertPage {
+  items: Alert[]
+  total: number
+}

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import type { LogEventPage, ServiceErrorRates } from './types'
+import type { Alert, LogEventPage, ServiceErrorRates } from './types'
 
 const SAMPLE_PAGE: LogEventPage = {
   total: 2,
@@ -47,11 +47,15 @@ const SAMPLE_HISTOGRAM = {
 let rates: ServiceErrorRates = SAMPLE_RATES
 let page: LogEventPage = SAMPLE_PAGE
 let serviceNames = ['auth-api', 'checkout']
+let alertItems: Alert[] = []
+let alertEvents: LogEventPage = { items: [], total: 0 }
 
 function respond(url: string): unknown {
   if (url.includes('/logs/services')) return serviceNames
   if (url.includes('/logs/histogram')) return SAMPLE_HISTOGRAM
   if (url.includes('/services/error-rates')) return rates
+  if (/\/alerts\/\d+\/events/.test(url)) return alertEvents
+  if (url.includes('/alerts')) return { items: alertItems, total: alertItems.length }
   return page
 }
 
@@ -65,6 +69,8 @@ describe('App', () => {
     rates = SAMPLE_RATES
     page = SAMPLE_PAGE
     serviceNames = ['auth-api', 'checkout']
+    alertItems = []
+    alertEvents = { items: [], total: 0 }
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (url: string) => ({
@@ -180,6 +186,64 @@ describe('App', () => {
     await user.click(row)
     await waitFor(() => expect(logUrls().at(-1)).not.toContain('service='))
     expect(row).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows saved alerts and loads the events behind one when opened', async () => {
+    const user = userEvent.setup()
+    alertItems = [
+      {
+        id: 7,
+        service: 'checkout',
+        fired_at: new Date().toISOString(),
+        window_seconds: 300,
+        total: 10,
+        errors: 8,
+        error_rate: 0.8,
+        threshold: 0.5,
+      },
+    ]
+    alertEvents = {
+      total: 2,
+      items: [
+        {
+          id: 31,
+          service: 'checkout',
+          level: 'ERROR',
+          message: 'card processor timeout',
+          timestamp: new Date().toISOString(),
+          received_at: new Date().toISOString(),
+        },
+      ],
+    }
+    render(<App />)
+
+    const history = await screen.findByRole('region', { name: 'Alert history' })
+    const item = await within(history).findByRole('button', { name: /checkout/ })
+    expect(within(history).getByText('80%')).toBeInTheDocument()
+    expect(within(history).getByText('8 of 10 events')).toBeInTheDocument()
+    expect(within(history).queryByText('card processor timeout')).not.toBeInTheDocument()
+
+    await user.click(item)
+    expect(await within(history).findByText('card processor timeout')).toBeInTheDocument()
+    expect(within(history).getByText('Showing 1 of 2 events.')).toBeInTheDocument()
+    expect(item).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(item)
+    expect(within(history).queryByText('card processor timeout')).not.toBeInTheDocument()
+  })
+
+  it('shows an empty state when no alerts have fired, and scopes history to the service filter', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const history = await screen.findByRole('region', { name: 'Alert history' })
+    expect(await within(history).findByText('No alerts have fired yet.')).toBeInTheDocument()
+
+    await screen.findByRole('option', { name: 'checkout' })
+    await user.selectOptions(screen.getByLabelText('Service'), 'checkout')
+    await waitFor(() => {
+      const urls = (fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string)
+      expect(urls.filter((u) => u.includes('/alerts?')).at(-1)).toContain('service=checkout')
+    })
   })
 
   it('pages with limit and offset, and resets to the first page on a filter change', async () => {

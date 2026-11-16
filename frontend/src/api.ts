@@ -1,4 +1,10 @@
-import type { LogEventPage, LogFilters, LogHistogram, ServiceErrorRates } from './types'
+import type {
+  AlertPage,
+  LogEventPage,
+  LogFilters,
+  LogHistogram,
+  ServiceErrorRates,
+} from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -51,6 +57,22 @@ export function fetchHistogram(
     params.set('start', start.toISOString())
   }
   return getJson(`/logs/histogram?${params.toString()}`, signal)
+}
+
+export function fetchAlerts(
+  service: string,
+  { limit = 10, signal }: { limit?: number; signal?: AbortSignal } = {},
+): Promise<AlertPage> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (service) params.set('service', service)
+  return getJson(`/alerts?${params.toString()}`, signal)
+}
+
+export function fetchAlertEvents(
+  alertId: number,
+  { limit = 50, signal }: { limit?: number; signal?: AbortSignal } = {},
+): Promise<LogEventPage> {
+  return getJson(`/alerts/${alertId}/events?limit=${limit}`, signal)
 }
 
 export { API_URL }
