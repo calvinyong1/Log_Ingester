@@ -18,9 +18,13 @@ Compose. AWS deploy hasn't happened yet.
 
 - `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` (no `id` — the worker persists it asynchronously)
 - `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`); open, so the browser dashboard needs no secret
-- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold
+- `GET /logs/services` — distinct service names, sorted; feeds the dashboard's service filter
+- `GET /logs/histogram` — per-level event counts in fixed time buckets (`service`, `level`, `start`, `end`, `buckets`), computed in the database so the chart covers the whole range
+- `GET /services/error-rates` — each service's current rolling error rate from the worker's Redis window, plus the configured window, threshold and minimum event count
+- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is also saved to an `alerts` table
+- `GET /alerts` and `GET /alerts/{id}/events` — alert history and the events inside the window that tripped each alert; read-only and open. Only the worker writes alerts, so the browser has no write path
 - Dashboard — live filtered feed, stacked-by-severity events-over-time chart, stat tiles
-- SQLAlchemy schema + Alembic migration for `log_events`
+- SQLAlchemy schema + Alembic migrations for `log_events` and `alerts`
 - Docker Compose for `api` + `worker` + `frontend` + `db` + `redis`
 
 ## Quickstart
@@ -129,7 +133,8 @@ for i in 1 2 3 4 5 6 7 8; do send payments ERROR "card processor down $i"; done
 docker compose logs worker | grep ALERT
 ```
 
-You should see an `[ALERT] payments: error rate ...` line. Repeating the
+You should see an `[ALERT] payments: error rate ...` line, and the alert appears under
+"Alert history" in the dashboard; select it to see the events behind it. Repeating the
 burst won't alert again for five minutes (the cooldown). To re-run the
 alert straight away:
 
