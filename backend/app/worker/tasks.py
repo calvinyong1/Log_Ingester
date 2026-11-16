@@ -1,13 +1,16 @@
-from datetime import datetime
+import logging
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import LogEvent
+from app.models import Alert, LogEvent
 from app.queue import get_redis_connection
 from app.worker.alerts import send_alert
 from app.worker.rate_limiter import ErrorRateTracker
+
+logger = logging.getLogger("app.worker.tasks")
 
 
 async def process_log_event(
@@ -41,6 +44,25 @@ async def process_log_event(
         return
     if not tracker.acquire_alert_cooldown(event.service, settings.alert_cooldown_seconds):
         return
+
+    # Saved before notifying so the dashboard can show the incident, but a
+    # failed insert must never swallow a real alert: log it and carry on.
+    try:
+        async with session_factory() as session:
+            session.add(
+                Alert(
+                    service=event.service,
+                    fired_at=datetime.now(UTC),
+                    window_seconds=settings.error_rate_window_seconds,
+                    total=counts.total,
+                    errors=counts.errors,
+                    error_rate=counts.error_rate,
+                    threshold=settings.error_rate_threshold,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("Failed to record alert for %s", event.service)
 
     send_alert(
         service=event.service,

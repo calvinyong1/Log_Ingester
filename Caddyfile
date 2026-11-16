@@ -1,7 +1,7 @@
 {$DOMAIN} {
 	encode gzip
 
-	@api path /logs /logs/* /health /ready /docs /docs/* /openapi.json
+	@api path /logs /logs/* /services/* /alerts /alerts/* /health /ready /docs /docs/* /openapi.json
 	handle @api {
 		reverse_proxy api:8000
 	}

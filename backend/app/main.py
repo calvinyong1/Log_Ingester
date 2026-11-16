@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import logs, services
+from app.api import alerts, logs, services
 from app.config import get_settings
 from app.db import get_session
 from app.queue import get_redis_connection
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(logs.router)
+    app.include_router(alerts.router)
     app.include_router(services.router)
 
     @app.get("/health", tags=["meta"])

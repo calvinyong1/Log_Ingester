@@ -62,3 +62,21 @@ class HistogramBucket(BaseModel):
 class LogHistogram(BaseModel):
     buckets: list[HistogramBucket]
     total: int
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    service: str
+    fired_at: datetime
+    window_seconds: int
+    total: int
+    errors: int
+    error_rate: float
+    threshold: float
+
+
+class AlertPage(BaseModel):
+    items: list[AlertOut]
+    total: int
