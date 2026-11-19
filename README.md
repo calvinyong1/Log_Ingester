@@ -160,6 +160,22 @@ cd backend && uv run pytest -q             # backend (dev deps aren't in the ima
 cd frontend && npm run test                 # frontend
 ```
 
+## Logging
+
+The API and worker log to stdout. `LOG_LEVEL` sets the verbosity and
+`LOG_FORMAT` the format: `text` (readable, the dev compose default) or `json`
+(one object per line, for log tools; the prod compose file uses it). Switch
+locally with `LOG_FORMAT=json` in the root `.env`, then `docker compose up -d`.
+
+Every API response carries an `X-Request-ID` header (a well-formed one you send
+is kept, otherwise one is generated). The same id appears on the API access line
+and on the worker's lines for that event, so one request can be followed through
+both:
+
+```bash
+docker compose logs api worker | grep <request-id>
+```
+
 ## Layout
 
 ```
