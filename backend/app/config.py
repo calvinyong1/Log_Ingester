@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +11,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     env: str = "development"
     log_level: str = "INFO"
+    # "json" for log tools, "text" for reading the output yourself.
+    log_format: Literal["json", "text"] = "json"
     api_key: str | None = None
 
     # Comma-separated list of origins allowed to hit the API from a browser,
