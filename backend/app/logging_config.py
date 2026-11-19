@@ -9,6 +9,10 @@ from datetime import UTC, datetime
 # themselves, so any record emitted in that context carries it.
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
+# Which run of the current job this is (1 = first try). Set only inside an RQ job,
+# so API lines never carry it.
+attempt_var: ContextVar[int | None] = ContextVar("attempt", default=None)
+
 _MARKER = "_app_logging"
 
 # Attributes every LogRecord has; anything else on a record came from `extra=`.
@@ -37,6 +41,8 @@ class JsonFormatter(logging.Formatter):
         }
         if request_id := request_id_var.get():
             payload["request_id"] = request_id
+        if (attempt := attempt_var.get()) is not None:
+            payload["attempt"] = attempt
         for key, value in _extras(record).items():
             payload.setdefault(key, value)
         if record.exc_info:
@@ -71,6 +77,8 @@ class TextFormatter(logging.Formatter):
             f"{self.formatTime(record, self.datefmt)} {record.levelname} "
             f"[{request_id}] {record.name}: {_one_line(record.getMessage())}"
         )
+        if (attempt := attempt_var.get()) is not None:
+            line += f" attempt={attempt}"
         for key, value in _extras(record).items():
             line += f" {key}={_one_line(value)}"
         if record.exc_info:

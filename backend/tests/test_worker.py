@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
-from app.logging_config import request_id_var
+from app.logging_config import attempt_var, request_id_var
 from app.models import Alert, LogEvent
 from app.worker.tasks import process_log_event
 
@@ -301,3 +301,55 @@ async def test_job_without_a_request_id_still_runs(
 
     async with session_factory() as session:
         assert len((await session.execute(select(LogEvent))).scalars().all()) == 1
+
+
+class _FakeJob:
+    def __init__(self, retries_left: int | None) -> None:
+        self.retries_left = retries_left
+
+
+@pytest.mark.parametrize(
+    ("retries_left", "expected"), [(None, 1), (3, 1), (2, 2), (0, 4)]
+)
+async def test_job_sets_the_attempt_from_the_retries_left_and_resets_it(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    retries_left: int | None,
+    expected: int,
+) -> None:
+    seen: list[int | None] = []
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: _FakeJob(retries_left))
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(attempt_var.get())
+    )
+
+    redis_conn = fakeredis.FakeStrictRedis()
+    for _ in range(5):
+        await process_log_event(
+            _payload(service="checkout", level="ERROR"),
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == [expected]
+    assert attempt_var.get() is None
+
+
+async def test_attempt_is_unset_outside_an_rq_job(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[int | None] = []
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: None)
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(attempt_var.get())
+    )
+
+    redis_conn = fakeredis.FakeStrictRedis()
+    for _ in range(5):
+        await process_log_event(
+            _payload(service="checkout", level="ERROR"),
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == [None]

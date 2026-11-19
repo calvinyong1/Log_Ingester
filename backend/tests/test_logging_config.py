@@ -10,6 +10,7 @@ from app.config import Settings, get_settings
 from app.logging_config import (
     JsonFormatter,
     TextFormatter,
+    attempt_var,
     configure_logging,
     request_id_var,
 )
@@ -71,6 +72,18 @@ def test_json_omits_request_id_when_unset() -> None:
     obj = json.loads(JsonFormatter().format(_record()))
 
     assert "request_id" not in obj
+
+
+def test_json_and_text_show_the_attempt_only_when_set() -> None:
+    assert "attempt" not in json.loads(JsonFormatter().format(_record()))
+    assert "attempt=" not in TextFormatter().format(_record())
+
+    token = attempt_var.set(2)
+    try:
+        assert json.loads(JsonFormatter().format(_record()))["attempt"] == 2
+        assert TextFormatter().format(_record("hello")).endswith("hello attempt=2")
+    finally:
+        attempt_var.reset(token)
 
 
 def test_json_includes_extra_fields() -> None:

@@ -1,12 +1,13 @@
 import logging
 from datetime import UTC, datetime
 
+from rq import get_current_job
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.logging_config import request_id_var
+from app.logging_config import attempt_var, request_id_var
 from app.models import Alert, LogEvent
 from app.queue import get_redis_connection
 from app.worker.alerts import send_alert
@@ -26,10 +27,23 @@ async def process_log_event(
     # The request id from the API call is set for the whole job so every line it
     # logs can be matched to that request; jobs queued before it existed have none.
     token = request_id_var.set(payload.get("request_id"))
+    attempt_token = attempt_var.set(_current_attempt())
     try:
         await _process(payload, session_factory=session_factory, redis_conn=redis_conn)
     finally:
+        attempt_var.reset(attempt_token)
         request_id_var.reset(token)
+
+
+def _current_attempt() -> int | None:
+    """1 on the first run, 2 on the first retry, and so on; None outside an RQ job.
+    RQ decrements `retries_left` each time a run fails, starting from the Retry max."""
+    job = get_current_job()
+    if job is None:
+        return None
+    if job.retries_left is None:
+        return 1
+    return get_settings().job_max_retries - job.retries_left + 1
 
 
 async def _process(
