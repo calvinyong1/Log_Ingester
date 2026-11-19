@@ -16,14 +16,14 @@ React dashboard.
 Backend, worker, and dashboard all work end to end locally via Docker
 Compose. Deployment is out of scope for now (see Future improvements).
 
-- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` with an `event_id` (no database `id` — the worker persists it asynchronously). Messages are capped at 8192 characters and timestamps must be within the last 30 days and no more than 5 minutes ahead (`422` otherwise). Failed jobs are retried up to 3 times, and a redelivered `event_id` is stored once. If Redis is unreachable it returns `503`
+- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` with an `event_id` (no database `id` — the worker persists it asynchronously). Messages are capped at 8192 characters and timestamps must be within the last 30 days and no more than 5 minutes ahead (`422` otherwise). Failed jobs are retried up to 3 times, and a redelivered `event_id` is stored once. Callers may send their own `event_id` (up to 64 characters of letters, digits, `.`, `_`, `:` and `-`) so a resend after a timeout is safe. If Redis is unreachable it returns `503`
 - `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`); open, so the browser dashboard needs no secret
 - `GET /logs/services` — distinct service names, sorted; feeds the dashboard's service filter
 - `GET /logs/histogram` — per-level event counts in fixed time buckets (`service`, `level`, `start`, `end`, `buckets`), computed in the database so the chart covers the whole range
 - `GET /services/error-rates` — each service's current rolling error rate from the worker's Redis window, plus the configured window, threshold and minimum event count
-- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is saved to an `alerts` table first (if that insert fails, the cooldown is released so the next error retries it). The webhook gets a JSON body with a Discord-compatible `content` field plus `alert_id`, `fired_at`, `service`, `total`, `errors` and `error_rate`, and is tried up to 3 times on a transport error or non-2xx response
+- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is saved to an `alerts` table first (if that insert fails, the cooldown is released so the next error retries it). The webhook gets a JSON body with a Discord-compatible `content` field plus `alert_id`, `fired_at`, `service`, `total`, `errors` and `error_rate`, and is tried up to 3 times on a transport error or non-2xx response. Mentions are disabled in the payload, so a service named `@everyone` can't ping a Discord server
 - `GET /alerts` and `GET /alerts/{id}/events` — alert history and the events inside the window that tripped each alert; read-only and open. Only the worker writes alerts, so the browser has no write path
-- Dashboard — live filtered feed, stacked-by-severity events-over-time chart, stat tiles
+- Dashboard — live filtered feed with pagination and Pause, a services rail showing each service's alert state, a stacked-by-severity chart and stat tiles that cover the whole range, and alert history
 - SQLAlchemy schema + Alembic migrations for `log_events` and `alerts`
 - Docker Compose for `api` + `worker` + `frontend` + `db` + `redis`
 

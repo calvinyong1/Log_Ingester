@@ -1,8 +1,9 @@
 # Log Monitor — dashboard
 
-Vite + React + TypeScript. Polls `GET /logs` on the backend, renders a live
-event feed, a stacked-by-severity time chart, and filters (service, level,
-time range).
+Vite + React + TypeScript. Polls the backend (`/logs`, `/logs/histogram`,
+`/logs/services`, `/services/error-rates` and `/alerts`) and renders a live
+event feed, a stacked-by-severity time chart, a services rail, alert history,
+and filters (service, level, time range), with Pause and pagination.
 
 ## Develop
 
