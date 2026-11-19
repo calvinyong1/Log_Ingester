@@ -1,4 +1,6 @@
 import logging
+import time
+from datetime import datetime
 
 import httpx
 
@@ -7,11 +9,15 @@ logger = logging.getLogger("app.worker.alerts")
 
 def send_alert(
     *,
+    alert_id: int,
+    fired_at: datetime,
     service: str,
     total: int,
     errors: int,
     error_rate: float,
     webhook_url: str | None,
+    max_attempts: int = 3,
+    timeout_seconds: float = 5.0,
 ) -> None:
     message = (
         f"[ALERT] {service}: error rate {error_rate:.0%} "
@@ -25,16 +31,28 @@ def send_alert(
     if not webhook_url:
         return
 
-    try:
-        httpx.post(
-            webhook_url,
-            json={
-                "service": service,
-                "total": total,
-                "errors": errors,
-                "error_rate": error_rate,
-            },
-            timeout=5.0,
-        )
-    except httpx.HTTPError:
-        logger.exception("Failed to deliver alert webhook for %s", service)
+    # "content" is what Discord requires; the rest is for receivers that parse
+    # the alert, which can de-duplicate a retried delivery on alert_id.
+    payload = {
+        "content": message,
+        "alert_id": alert_id,
+        "fired_at": fired_at.isoformat(),
+        "service": service,
+        "total": total,
+        "errors": errors,
+        "error_rate": error_rate,
+    }
+    for attempt in range(max_attempts):
+        try:
+            response = httpx.post(webhook_url, json=payload, timeout=timeout_seconds)
+            response.raise_for_status()
+            return
+        except httpx.HTTPError:
+            if attempt + 1 < max_attempts:
+                time.sleep(2**attempt)
+            else:
+                logger.exception(
+                    "Failed to deliver alert webhook for %s after %d attempts",
+                    service,
+                    max_attempts,
+                )

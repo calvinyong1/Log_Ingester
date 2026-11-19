@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     error_rate_min_events: int = 5
     alert_cooldown_seconds: int = 300
     alert_webhook_url: str | None = None
+    # Webhook delivery: attempts include the first try, with 1s then 2s backoff.
+    webhook_max_attempts: int = 3
+    webhook_timeout_seconds: float = 5.0
 
     # Ingest: how often a failed worker job is retried and how long one may run.
     job_max_retries: int = 3
