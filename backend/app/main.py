@@ -7,10 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import alerts, logs, services
 from app.config import get_settings
 from app.db import get_session
+from app.logging_config import configure_logging
+from app.middleware import RequestContextMiddleware
 from app.queue import get_redis_connection
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
     app = FastAPI(
         title="Log Monitor",
         version="0.1.0",
@@ -18,10 +22,13 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=get_settings().cors_origin_list,
+        allow_origins=settings.cors_origin_list,
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
+    # Added last so it is outermost and sees every request, preflights included.
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(logs.router)
     app.include_router(alerts.router)
     app.include_router(services.router)
