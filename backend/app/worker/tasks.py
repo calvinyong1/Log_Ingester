@@ -55,29 +55,40 @@ async def process_log_event(
     if not tracker.acquire_alert_cooldown(event.service, settings.alert_cooldown_seconds):
         return
 
-    # Saved before notifying so the dashboard can show the incident, but a
-    # failed insert must never swallow a real alert: log it and carry on.
+    # The cooldown also serves as the lock that stops two workers inserting the
+    # same alert, so it is taken first. If the row can't be saved it is given
+    # back: nothing was recorded or sent, and the next error event trips the
+    # alert again. Raising instead would re-run the job and double-count the
+    # rolling window.
+    fired_at = datetime.now(UTC)
     try:
         async with session_factory() as session:
-            session.add(
-                Alert(
-                    service=event.service,
-                    fired_at=datetime.now(UTC),
-                    window_seconds=settings.error_rate_window_seconds,
-                    total=counts.total,
-                    errors=counts.errors,
-                    error_rate=counts.error_rate,
-                    threshold=settings.error_rate_threshold,
-                )
+            alert = Alert(
+                service=event.service,
+                fired_at=fired_at,
+                window_seconds=settings.error_rate_window_seconds,
+                total=counts.total,
+                errors=counts.errors,
+                error_rate=counts.error_rate,
+                threshold=settings.error_rate_threshold,
             )
+            session.add(alert)
+            await session.flush()
+            alert_id = alert.id
             await session.commit()
     except Exception:
+        tracker.release_alert_cooldown(event.service)
         logger.exception("Failed to record alert for %s", event.service)
+        return
 
     send_alert(
+        alert_id=alert_id,
+        fired_at=fired_at,
         service=event.service,
         total=counts.total,
         errors=counts.errors,
         error_rate=counts.error_rate,
         webhook_url=settings.alert_webhook_url,
+        max_attempts=settings.webhook_max_attempts,
+        timeout_seconds=settings.webhook_timeout_seconds,
     )

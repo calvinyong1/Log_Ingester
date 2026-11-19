@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
 
 import fakeredis
+import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.models import Alert, LogEvent
 from app.worker.tasks import process_log_event
 
@@ -140,27 +142,98 @@ async def test_no_alert_row_below_threshold_or_during_cooldown(
     assert len(await _alerts(session_factory)) == 1
 
 
-async def test_failed_alert_save_does_not_swallow_the_alert(
-    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+def _fail_alert_inserts(monkeypatch: pytest.MonkeyPatch, times: int) -> None:
+    real_alert = Alert
+    calls = {"n": 0}
+
+    def flaky(**kwargs: object) -> Alert:
+        calls["n"] += 1
+        if calls["n"] <= times:
+            raise RuntimeError("db down")
+        return real_alert(**kwargs)
+
+    monkeypatch.setattr("app.worker.tasks.Alert", flaky)
+
+
+async def _error_burst(
+    session_factory: async_sessionmaker[AsyncSession], redis_conn: fakeredis.FakeStrictRedis, n: int
 ) -> None:
-    sent: list[dict] = []
-    monkeypatch.setattr("app.worker.tasks.send_alert", lambda **kwargs: sent.append(kwargs))
-
-    def broken(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr("app.worker.tasks.Alert", broken)
-
-    redis_conn = fakeredis.FakeStrictRedis()
-    for _ in range(5):
+    for _ in range(n):
         await process_log_event(
             _payload(service="checkout", level="ERROR"),
             session_factory=session_factory,
             redis_conn=redis_conn,
         )
 
-    assert len(sent) == 1
+
+async def test_failed_alert_insert_releases_cooldown_and_sends_nothing(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict] = []
+    monkeypatch.setattr("app.worker.tasks.send_alert", lambda **kwargs: sent.append(kwargs))
+    _fail_alert_inserts(monkeypatch, times=1)
+    redis_conn = fakeredis.FakeStrictRedis()
+
+    await _error_burst(session_factory, redis_conn, 5)
+
+    assert sent == []
     assert await _alerts(session_factory) == []
+    assert redis_conn.exists("alert_cooldown:checkout") == 0
+
+
+async def test_alert_is_sent_once_the_insert_works_again_after_a_failure(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict] = []
+    monkeypatch.setattr("app.worker.tasks.send_alert", lambda **kwargs: sent.append(kwargs))
+    _fail_alert_inserts(monkeypatch, times=1)
+    redis_conn = fakeredis.FakeStrictRedis()
+
+    await _error_burst(session_factory, redis_conn, 6)
+
+    assert len(sent) == 1
+    assert len(await _alerts(session_factory)) == 1
+
+
+async def test_alert_args_carry_the_saved_row_id_and_fired_at(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[dict] = []
+    monkeypatch.setattr("app.worker.tasks.send_alert", lambda **kwargs: sent.append(kwargs))
+
+    await _error_burst(session_factory, fakeredis.FakeStrictRedis(), 5)
+
+    (alert,) = await _alerts(session_factory)
+    assert sent[0]["alert_id"] == alert.id
+    assert sent[0]["fired_at"] == alert.fired_at.replace(tzinfo=sent[0]["fired_at"].tzinfo)
+    assert sent[0]["fired_at"].tzinfo is not None
+
+
+@pytest.fixture
+def webhook_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "https://example.com/hook")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
+async def test_webhook_failure_keeps_cooldown_and_does_not_raise(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    webhook_env: None,
+) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("app.worker.alerts.httpx.post", refuse)
+    monkeypatch.setattr("app.worker.alerts.time.sleep", lambda _: None)
+    redis_conn = fakeredis.FakeStrictRedis()
+
+    await _error_burst(session_factory, redis_conn, 5)
+
+    assert len(await _alerts(session_factory)) == 1
+    assert redis_conn.exists("alert_cooldown:checkout") == 1
 
 
 async def test_redelivered_event_is_stored_once_but_still_counted(

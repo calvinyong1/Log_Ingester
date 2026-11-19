@@ -21,7 +21,7 @@ Compose. Deployment is out of scope for now (see Future improvements).
 - `GET /logs/services` — distinct service names, sorted; feeds the dashboard's service filter
 - `GET /logs/histogram` — per-level event counts in fixed time buckets (`service`, `level`, `start`, `end`, `buckets`), computed in the database so the chart covers the whole range
 - `GET /services/error-rates` — each service's current rolling error rate from the worker's Redis window, plus the configured window, threshold and minimum event count
-- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is also saved to an `alerts` table
+- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is saved to an `alerts` table first (if that insert fails, the cooldown is released so the next error retries it). The webhook gets a JSON body with a Discord-compatible `content` field plus `alert_id`, `fired_at`, `service`, `total`, `errors` and `error_rate`, and is retried up to 3 times on a transport error or non-2xx response
 - `GET /alerts` and `GET /alerts/{id}/events` — alert history and the events inside the window that tripped each alert; read-only and open. Only the worker writes alerts, so the browser has no write path
 - Dashboard — live filtered feed, stacked-by-severity events-over-time chart, stat tiles
 - SQLAlchemy schema + Alembic migrations for `log_events` and `alerts`
@@ -145,7 +145,7 @@ docker compose exec redis redis-cli DEL alert_cooldown:payments
 To also see a webhook delivery, add `ALERT_WEBHOOK_URL` under the `worker`
 service's `environment` in `docker-compose.yml` (it is only passed through
 in `docker-compose.prod.yml` by default), point it at a throwaway receiver
-such as https://webhook.site, and restart the worker.
+such as https://webhook.site (or a Discord webhook URL), and restart the worker. Receivers can de-duplicate a retried delivery on `alert_id`.
 
 ### 7. Show the API docs
 

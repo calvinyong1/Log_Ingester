@@ -65,3 +65,12 @@ def test_events_without_an_event_id_are_always_counted() -> None:
     counts = tracker.record("svc", "INFO", now=1000)
 
     assert counts.total == 2
+
+
+def test_release_alert_cooldown_lets_the_next_acquire_succeed() -> None:
+    tracker = ErrorRateTracker(fakeredis.FakeStrictRedis(), window_seconds=60)
+
+    assert tracker.acquire_alert_cooldown("svc", 300) is True
+    assert tracker.acquire_alert_cooldown("svc", 300) is False
+    tracker.release_alert_cooldown("svc")
+    assert tracker.acquire_alert_cooldown("svc", 300) is True

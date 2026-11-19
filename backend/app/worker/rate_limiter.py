@@ -61,3 +61,7 @@ class ErrorRateTracker:
         """True if an alert should fire now; False if one already fired recently."""
         key = f"alert_cooldown:{service}"
         return bool(self._redis.set(key, "1", nx=True, ex=cooldown_seconds))
+
+    def release_alert_cooldown(self, service: str) -> None:
+        """Give the cooldown back when the alert it guarded was never recorded."""
+        self._redis.delete(f"alert_cooldown:{service}")
