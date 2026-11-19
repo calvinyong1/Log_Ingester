@@ -11,9 +11,12 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 _MARKER = "_app_logging"
 
 # Attributes every LogRecord has; anything else on a record came from `extra=`.
+# Uvicorn's `color_message` is the same text with ANSI codes, which only its own
+# formatter uses.
 _STANDARD_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).__dict__) | {
     "message",
     "asctime",
+    "color_message",
 }
 
 

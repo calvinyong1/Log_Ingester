@@ -98,6 +98,13 @@ def test_json_traceback_is_one_line_in_exc() -> None:
     assert "ZeroDivisionError" in json.loads(line)["exc"]
 
 
+def test_uvicorns_color_message_extra_is_not_logged() -> None:
+    record = _record("Uvicorn running", color_message="Uvicorn running on [1m%s[0m")
+
+    assert "color_message" not in json.loads(JsonFormatter().format(record))
+    assert "color_message" not in TextFormatter().format(record)
+
+
 def test_text_line_shows_dash_without_request_id() -> None:
     line = TextFormatter().format(_record("hello"))
 
