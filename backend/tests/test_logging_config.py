@@ -111,6 +111,28 @@ def test_text_line_shows_dash_without_request_id() -> None:
     assert line.endswith("INFO [-] app.test: hello")
 
 
+def test_text_line_escapes_newlines_so_a_caller_cannot_forge_a_log_line() -> None:
+    record = _record(
+        "GET /x\n12:00:00 INFO [admin] app.access: GET /fake 200",
+        path="/x\r\n12:00:00 INFO forged",
+    )
+
+    line = TextFormatter().format(record)
+
+    assert "\n" not in line
+    assert "\r" not in line
+    assert "\\n12:00:00 INFO [admin]" in line
+
+
+def test_text_traceback_stays_multiline() -> None:
+    try:
+        raise ZeroDivisionError("boom")
+    except ZeroDivisionError:
+        record = _record("failed", logging.ERROR, exc_info=sys.exc_info())
+
+    assert TextFormatter().format(record).count("\n") > 1
+
+
 def test_text_line_shows_id_and_extras() -> None:
     line = _with_request_id(
         "abc123", lambda: TextFormatter().format(_record("done", status=202))

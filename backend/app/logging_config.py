@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -45,6 +46,19 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def _one_line(value: object) -> str:
+    """Escape control characters so caller-controlled text (a request path, a
+    service name) can't end a text line and start a forged one. A traceback is
+    app-generated and stays multi-line."""
+    return _CONTROL_CHARS.sub(
+        lambda m: _ESCAPES.get(m.group(), f"\\x{ord(m.group()):02x}"), str(value)
+    )
+
+
 class TextFormatter(logging.Formatter):
     """`HH:MM:SS LEVEL [request_id] logger: message key=value ...`, for reading locally."""
 
@@ -55,10 +69,10 @@ class TextFormatter(logging.Formatter):
         request_id = request_id_var.get() or "-"
         line = (
             f"{self.formatTime(record, self.datefmt)} {record.levelname} "
-            f"[{request_id}] {record.name}: {record.getMessage()}"
+            f"[{request_id}] {record.name}: {_one_line(record.getMessage())}"
         )
         for key, value in _extras(record).items():
-            line += f" {key}={value}"
+            line += f" {key}={_one_line(value)}"
         if record.exc_info:
             line += "\n" + self.formatException(record.exc_info)
         return line

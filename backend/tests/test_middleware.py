@@ -65,6 +65,33 @@ async def test_unhandled_error_still_logs_status_500(
             r = await ac.get("/boom")
 
     assert r.status_code == 500
-    (record,) = [r for r in caplog.records if r.name == "app.access"]
+    (record,) = [r for r in caplog.records if r.name == "app.access" and hasattr(r, "status")]
     assert record.status == 500
     assert request_id_var.get() is None
+
+
+async def test_unhandled_error_is_logged_with_the_request_id() -> None:
+    seen: list[tuple[int, str | None]] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append((record.levelno, request_id_var.get()))
+
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+
+    @app.get("/boom")
+    def boom() -> None:
+        raise RuntimeError("boom")
+
+    handler = Capture(level=logging.ERROR)
+    logger = logging.getLogger("app.access")
+    logger.addHandler(handler)
+    try:
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.get("/boom", headers={"X-Request-ID": "rid-77"})
+    finally:
+        logger.removeHandler(handler)
+
+    assert seen == [(logging.ERROR, "rid-77")]

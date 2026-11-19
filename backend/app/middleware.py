@@ -53,6 +53,11 @@ class RequestContextMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
+        except Exception:
+            # Starlette's outer handler and uvicorn log this too, but only after the
+            # request id has been reset, so the traceback would carry no id.
+            logger.exception("Unhandled error in %s %s", scope["method"], scope["path"])
+            raise
         finally:
             # Logged before the reset so the line carries the request id.
             logger.info(
