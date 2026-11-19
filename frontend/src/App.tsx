@@ -71,21 +71,7 @@ function App() {
     <div className="app">
       <header className="app__header">
         <div className="app__brand">
-          <div className="app__logo">
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M3 12h4l3-8 4 16 3-8h4" />
-            </svg>
-          </div>
+          <img className="app__logo" src="/favicon.svg" alt="" width={40} height={40} />
           <div>
             <h1>Log Monitor</h1>
             <p className="app__subtitle">
