@@ -3,6 +3,9 @@
 
 	@api path /logs /logs/* /services/* /alerts /alerts/* /health /ready /docs /docs/* /openapi.json
 	handle @api {
+		request_body {
+			max_size 64KB
+		}
 		reverse_proxy api:8000
 	}
 
