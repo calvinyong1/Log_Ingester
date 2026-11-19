@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
@@ -26,17 +27,26 @@ async def process_log_event(
     redis_conn = redis_conn or get_redis_connection()
 
     event = LogEvent(
+        event_id=payload.get("event_id"),
         service=payload["service"],
         level=payload["level"],
         message=payload["message"],
         timestamp=datetime.fromisoformat(payload["timestamp"]),
     )
-    async with session_factory() as session: # Create a new  AsyncSession object
-        session.add(event) # Add the LogEvent to the session
-        await session.commit() # Commit the log event to Postgres
+    try:
+        async with session_factory() as session:
+            session.add(event)
+            await session.commit()
+    except IntegrityError:
+        # Only event_id is unique: this job was redelivered after its row was
+        # saved. Skip the insert but carry on, since the Redis step may be what
+        # failed last time.
+        if event.event_id is None:
+            raise
+        logger.info("Event %s already stored; skipping insert", event.event_id)
 
     tracker = ErrorRateTracker(redis_conn, window_seconds=settings.error_rate_window_seconds)
-    counts = tracker.record(event.service, event.level)
+    counts = tracker.record(event.service, event.level, event_id=event.event_id)
 
     if counts.total < settings.error_rate_min_events:
         return

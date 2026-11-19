@@ -28,19 +28,27 @@ class ErrorRateTracker:
         self._redis = redis_conn
         self._window_seconds = window_seconds
 
-    def record(self, service: str, level: str, now: float | None = None) -> WindowCounts:
+    def record(
+        self,
+        service: str,
+        level: str,
+        now: float | None = None,
+        event_id: str | None = None,
+    ) -> WindowCounts:
         now = time.time() if now is None else now
         cutoff = now - self._window_seconds
         events_key = f"events:{service}"
         errors_key = f"errors:{service}"
-        member = f"{now}:{uuid.uuid4().hex}"
+        # With an event_id the member is stable, so a redelivered job is counted
+        # once (ZADD NX leaves the existing entry and its score alone).
+        member = f"id:{event_id}" if event_id else f"{now}:{uuid.uuid4().hex}"
 
         pipe = self._redis.pipeline()
-        pipe.zadd(events_key, {member: now})
+        pipe.zadd(events_key, {member: now}, nx=True)
         pipe.zremrangebyscore(events_key, 0, cutoff)
         pipe.expire(events_key, self._window_seconds * 2)
         if level in ERROR_LEVELS:
-            pipe.zadd(errors_key, {member: now})
+            pipe.zadd(errors_key, {member: now}, nx=True)
         pipe.zremrangebyscore(errors_key, 0, cutoff)
         pipe.expire(errors_key, self._window_seconds * 2)
         pipe.zcard(events_key)

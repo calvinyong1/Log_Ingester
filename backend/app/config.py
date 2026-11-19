@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     alert_cooldown_seconds: int = 300
     alert_webhook_url: str | None = None
 
+    # Ingest: how often a failed worker job is retried and how long one may run.
+    job_max_retries: int = 3
+    job_timeout_seconds: int = 60
+    # Producer-supplied timestamps outside this range are rejected: they would
+    # land far from where the dashboard and rolling window look.
+    timestamp_max_future_seconds: int = 300
+    timestamp_max_age_days: int = 30
+
 
 @lru_cache
 def get_settings() -> Settings:

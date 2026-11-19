@@ -1,11 +1,16 @@
+import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query, status
-from rq import Queue
+import redis
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.concurrency import run_in_threadpool
+from rq import Queue, Retry
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_api_key
+from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import LogEvent
 from app.queue import get_queue
@@ -16,10 +21,16 @@ from app.schemas import (
     LogEventOut,
     LogEventPage,
     LogHistogram,
+    LogLevel,
 )
 from app.sql import bucket_index
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/logs", tags=["logs"])
+
+# Seconds before each retry of a failed job; the last value repeats.
+RETRY_INTERVALS = [5, 30, 120]
 
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 MIN_HISTOGRAM_SPAN = timedelta(seconds=60)
@@ -40,18 +51,32 @@ def _as_utc(value: datetime) -> datetime:
 async def ingest_log(
     payload: LogEventIn,
     queue: Queue = Depends(get_queue),
+    settings: Settings = Depends(get_settings),
 ) -> LogEventAccepted:
     timestamp = payload.timestamp or datetime.now(UTC)
-    queue.enqueue(
-        "app.worker.tasks.process_log_event",
-        {
-            "service": payload.service,
-            "level": payload.level,
-            "message": payload.message,
-            "timestamp": timestamp.isoformat(),
-        },
-    )
+    event_id = payload.event_id or uuid.uuid4().hex
+    try:
+        # enqueue is a blocking Redis call; keep it off the event loop.
+        await run_in_threadpool(
+            queue.enqueue,
+            "app.worker.tasks.process_log_event",
+            {
+                "event_id": event_id,
+                "service": payload.service,
+                "level": payload.level,
+                "message": payload.message,
+                "timestamp": timestamp.isoformat(),
+            },
+            retry=Retry(max=settings.job_max_retries, interval=RETRY_INTERVALS),
+            job_timeout=settings.job_timeout_seconds,
+        )
+    except redis.exceptions.RedisError as exc:
+        logger.exception("Failed to enqueue log event")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Ingest queue unavailable, retry shortly"
+        ) from exc
     return LogEventAccepted(
+        event_id=event_id,
         service=payload.service,
         level=payload.level,
         message=payload.message,
@@ -70,7 +95,7 @@ async def list_services(session: AsyncSession = Depends(get_session)) -> list[st
 @router.get("/histogram", response_model=LogHistogram)
 async def log_histogram(
     service: str | None = None,
-    level: str | None = None,
+    level: LogLevel | None = None,
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     buckets: int = Query(24, ge=1, le=200),
@@ -135,7 +160,7 @@ async def log_histogram(
 @router.get("", response_model=LogEventPage)
 async def list_logs(
     service: str | None = None,
-    level: str | None = None,
+    level: LogLevel | None = None,
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     limit: int = Query(100, ge=1, le=1000),

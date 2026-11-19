@@ -1,6 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
+import pytest
+import redis
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -30,13 +32,16 @@ async def _seed(
 async def test_ingest_returns_202_and_queues_job(
     client: AsyncClient, fake_queue: mock.MagicMock
 ) -> None:
+    # Whole seconds so the Z-suffixed echo below is exact; must be recent enough
+    # to pass the timestamp age check.
+    ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=1)
     r = await client.post(
         "/logs",
         json={
             "service": "auth-api",
             "level": "ERROR",
             "message": "boom",
-            "timestamp": "2026-04-25T12:00:00Z",
+            "timestamp": ts.isoformat(),
         },
     )
     assert r.status_code == 202, r.text
@@ -45,7 +50,7 @@ async def test_ingest_returns_202_and_queues_job(
     assert body["service"] == "auth-api"
     assert body["level"] == "ERROR"
     assert body["message"] == "boom"
-    assert body["timestamp"] == "2026-04-25T12:00:00Z"
+    assert body["timestamp"] == ts.isoformat().replace("+00:00", "Z")
 
     fake_queue.enqueue.assert_called_once()
     (job_path, job_payload), _ = fake_queue.enqueue.call_args
@@ -276,3 +281,76 @@ async def test_histogram_rejects_bad_bucket_count(client: AsyncClient) -> None:
     for n in (0, 201):
         r = await client.get("/logs/histogram", params={"buckets": n})
         assert r.status_code == 422
+
+
+async def test_ingest_gives_job_an_event_id_and_retry_policy(
+    client: AsyncClient, fake_queue: mock.MagicMock
+) -> None:
+    r = await client.post("/logs", json={"service": "x", "level": "INFO", "message": "hi"})
+    assert r.status_code == 202
+
+    (_, job_payload), kwargs = fake_queue.enqueue.call_args
+    assert job_payload["event_id"]
+    assert kwargs["retry"].max == 3
+    assert kwargs["job_timeout"] == 60
+
+
+async def test_ingest_keeps_client_supplied_event_id(
+    client: AsyncClient, fake_queue: mock.MagicMock
+) -> None:
+    r = await client.post(
+        "/logs",
+        json={"service": "x", "level": "INFO", "message": "hi", "event_id": "abc-123"},
+    )
+    assert r.status_code == 202
+    (_, job_payload), _ = fake_queue.enqueue.call_args
+    assert job_payload["event_id"] == "abc-123"
+
+
+@pytest.mark.parametrize("bad_id", ["has space", "line\nbreak", "x" * 65, ""])
+async def test_ingest_rejects_malformed_event_id(client: AsyncClient, bad_id: str) -> None:
+    r = await client.post(
+        "/logs",
+        json={"service": "x", "level": "INFO", "message": "hi", "event_id": bad_id},
+    )
+    assert r.status_code == 422
+
+
+async def test_ingest_returns_503_when_redis_is_down(
+    client: AsyncClient, fake_queue: mock.MagicMock
+) -> None:
+    fake_queue.enqueue.side_effect = redis.exceptions.ConnectionError("down")
+    r = await client.post("/logs", json={"service": "x", "level": "INFO", "message": "hi"})
+    assert r.status_code == 503
+
+
+async def test_ingest_rejects_oversized_message(client: AsyncClient) -> None:
+    r = await client.post(
+        "/logs", json={"service": "x", "level": "INFO", "message": "a" * 8193}
+    )
+    assert r.status_code == 422
+
+
+async def test_ingest_accepts_message_at_the_limit(client: AsyncClient) -> None:
+    r = await client.post(
+        "/logs", json={"service": "x", "level": "INFO", "message": "a" * 8192}
+    )
+    assert r.status_code == 202
+
+
+@pytest.mark.parametrize("delta", [timedelta(minutes=10), -timedelta(days=31)])
+async def test_ingest_rejects_implausible_timestamps(
+    client: AsyncClient, delta: timedelta
+) -> None:
+    ts = (datetime.now(UTC) + delta).isoformat()
+    r = await client.post(
+        "/logs",
+        json={"service": "x", "level": "INFO", "message": "hi", "timestamp": ts},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/logs", "/logs/histogram"])
+async def test_get_rejects_unknown_level(client: AsyncClient, path: str) -> None:
+    r = await client.get(path, params={"level": "TRACE"})
+    assert r.status_code == 422

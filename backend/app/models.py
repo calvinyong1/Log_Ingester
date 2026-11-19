@@ -10,6 +10,8 @@ class LogEvent(Base):
     __tablename__ = "log_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Dedupes redelivered jobs; nullable for rows written before it existed.
+    event_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     service: Mapped[str] = mapped_column(String(128), index=True)
     level: Mapped[str] = mapped_column(String(16), index=True)
     message: Mapped[str] = mapped_column(Text)

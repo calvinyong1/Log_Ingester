@@ -161,3 +161,36 @@ async def test_failed_alert_save_does_not_swallow_the_alert(
 
     assert len(sent) == 1
     assert await _alerts(session_factory) == []
+
+
+async def test_redelivered_event_is_stored_once_but_still_counted(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # A retry after the DB commit but before the Redis write must not duplicate
+    # the row, and must still reach the rolling window it missed the first time.
+    redis_conn = fakeredis.FakeStrictRedis()
+    payload = {**_payload(service="checkout"), "event_id": "evt-1"}
+
+    await process_log_event(payload, session_factory=session_factory, redis_conn=redis_conn)
+    redis_conn.flushall()  # simulate the Redis write that never happened
+    await process_log_event(payload, session_factory=session_factory, redis_conn=redis_conn)
+
+    async with session_factory() as session:
+        rows = (await session.execute(select(LogEvent))).scalars().all()
+    assert len(rows) == 1
+    assert redis_conn.zcard("events:checkout") == 1
+
+
+async def test_redelivered_event_that_redis_already_has_is_not_counted_twice(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    # A retry after a later step failed (or a client resending the same id)
+    # must not inflate the rolling window.
+    redis_conn = fakeredis.FakeStrictRedis()
+    payload = {**_payload(service="checkout", level="ERROR"), "event_id": "evt-2"}
+
+    await process_log_event(payload, session_factory=session_factory, redis_conn=redis_conn)
+    await process_log_event(payload, session_factory=session_factory, redis_conn=redis_conn)
+
+    assert redis_conn.zcard("events:checkout") == 1
+    assert redis_conn.zcard("errors:checkout") == 1

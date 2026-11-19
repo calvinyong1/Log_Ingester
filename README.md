@@ -9,14 +9,14 @@ React dashboard.
 - **Backend:** FastAPI, async SQLAlchemy 2.0, Postgres 16, Alembic
 - **Queue:** Redis 7 + RQ
 - **Frontend:** Vite + React + TypeScript, Recharts
-- **Infra:** Docker Compose locally, AWS (EC2 / RDS / ElastiCache) for deploy
+- **Infra:** Docker Compose, run locally
 
 ## Status
 
 Backend, worker, and dashboard all work end to end locally via Docker
-Compose. AWS deploy hasn't happened yet.
+Compose. Deployment is out of scope for now (see Future improvements).
 
-- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` (no `id` — the worker persists it asynchronously)
+- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` with an `event_id` (no database `id` — the worker persists it asynchronously). Messages are capped at 8192 characters and timestamps must be within the last 30 days and no more than 5 minutes ahead (`422` otherwise). Failed jobs are retried up to 3 times, and a redelivered `event_id` is stored once. If Redis is unreachable it returns `503`
 - `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`); open, so the browser dashboard needs no secret
 - `GET /logs/services` — distinct service names, sorted; feeds the dashboard's service filter
 - `GET /logs/histogram` — per-level event counts in fixed time buckets (`service`, `level`, `start`, `end`, `buckets`), computed in the database so the chart covers the whole range
@@ -165,3 +165,18 @@ backend/    FastAPI app, worker, models, migrations, tests
 frontend/   Vite + React dashboard
 docker-compose.yml
 ```
+
+## Future improvements
+
+- **Move the event store to Elasticsearch at larger scale.** Postgres is enough
+  for this workload and keeps ingest transactional (the unique `event_id` makes
+  job retries safe). If volume or message search outgrows it (full-text search,
+  very high sustained ingest, fast aggregations over huge ranges), the plan is
+  to index events in Elasticsearch and keep Postgres for alert history. The
+  rolling error-rate alert already runs on Redis, so it wouldn't change.
+- **Deployment.** The project runs locally only. `docker-compose.prod.yml` and
+  the `Caddyfile` (HTTPS, one origin, path routing) sketch a single-VM setup,
+  but they have never been run against a real server and domain, so treat them
+  as unverified. A real deployment would also need managed Postgres and Redis,
+  somewhere to run the API and worker, a static host for the dashboard, and
+  secrets kept out of a `.env` file.

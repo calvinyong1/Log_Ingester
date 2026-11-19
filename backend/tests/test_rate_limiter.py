@@ -45,3 +45,23 @@ def test_alert_cooldown_blocks_repeat_within_window() -> None:
 
     assert tracker.acquire_alert_cooldown("svc", cooldown_seconds=30) is True
     assert tracker.acquire_alert_cooldown("svc", cooldown_seconds=30) is False
+
+
+def test_recording_the_same_event_id_twice_counts_it_once() -> None:
+    conn = fakeredis.FakeStrictRedis()
+    tracker = ErrorRateTracker(conn, window_seconds=60)
+
+    tracker.record("svc", "ERROR", now=1000, event_id="evt-1")
+    counts = tracker.record("svc", "ERROR", now=1005, event_id="evt-1")
+
+    assert (counts.total, counts.errors) == (1, 1)
+
+
+def test_events_without_an_event_id_are_always_counted() -> None:
+    conn = fakeredis.FakeStrictRedis()
+    tracker = ErrorRateTracker(conn, window_seconds=60)
+
+    tracker.record("svc", "INFO", now=1000)
+    counts = tracker.record("svc", "INFO", now=1000)
+
+    assert counts.total == 2
