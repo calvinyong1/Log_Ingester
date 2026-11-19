@@ -142,10 +142,12 @@ alert straight away:
 docker compose exec redis redis-cli DEL alert_cooldown:payments
 ```
 
-To also see a webhook delivery, add `ALERT_WEBHOOK_URL` under the `worker`
-service's `environment` in `docker-compose.yml` (it is only passed through
-in `docker-compose.prod.yml` by default), point it at a throwaway receiver
-such as https://webhook.site (or a Discord webhook URL), and restart the worker. Receivers can de-duplicate a retried delivery on `alert_id`.
+To also see a webhook delivery, set `ALERT_WEBHOOK_URL` in the root `.env` (compose
+passes it through to the worker) to a throwaway receiver such as
+https://webhook.site, or to a Discord webhook URL, then run
+`docker compose up -d worker` to restart the worker with it. Receivers can
+de-duplicate a retried delivery on `alert_id`. Treat the URL as a secret: anyone
+who has it can post to your channel.
 
 ### 7. Show the API docs
 
