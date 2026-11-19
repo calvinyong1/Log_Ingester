@@ -12,7 +12,8 @@ class LogEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     # Dedupes redelivered jobs; nullable for rows written before it existed.
     event_id: Mapped[str | None] = mapped_column(String(64), unique=True)
-    service: Mapped[str] = mapped_column(String(128), index=True)
+    # No index of its own: ix_log_events_service_level_ts leads with service.
+    service: Mapped[str] = mapped_column(String(128))
     level: Mapped[str] = mapped_column(String(16), index=True)
     message: Mapped[str] = mapped_column(Text)
     # Event time as reported by the producer (server fills if missing).
