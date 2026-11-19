@@ -35,6 +35,9 @@ def send_alert(
     # the alert, which can de-duplicate a retried delivery on alert_id.
     payload = {
         "content": message,
+        # The service name is caller-supplied; without this Discord would turn
+        # "@everyone" in it into a ping.
+        "allowed_mentions": {"parse": []},
         "alert_id": alert_id,
         "fired_at": fired_at.isoformat(),
         "service": service,

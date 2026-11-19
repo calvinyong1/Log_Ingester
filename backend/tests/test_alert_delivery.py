@@ -63,6 +63,17 @@ def test_payload_has_content_alert_id_and_utc_fired_at(
     assert body["error_rate"] == 0.6
 
 
+def test_payload_stops_discord_from_pinging_mentions_in_the_service_name(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float]
+) -> None:
+    receiver = Receiver([204])
+
+    _send(receiver, monkeypatch, service="@everyone")
+
+    (body,) = receiver.posted
+    assert body["allowed_mentions"] == {"parse": []}
+
+
 def test_non_2xx_is_retried_then_succeeds(
     monkeypatch: pytest.MonkeyPatch, sleeps: list[float]
 ) -> None:
