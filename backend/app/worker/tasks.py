@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.db import SessionLocal
+from app.logging_config import request_id_var
 from app.models import Alert, LogEvent
 from app.queue import get_redis_connection
 from app.worker.alerts import send_alert
@@ -22,6 +23,21 @@ async def process_log_event(
 ) -> None:
     # Enqueued by dotted path as a coroutine function: RQ (>=2.10) runs it with
     # asyncio.run() per job, which is only safe under the forking `rq worker`.
+    # The request id from the API call is set for the whole job so every line it
+    # logs can be matched to that request; jobs queued before it existed have none.
+    token = request_id_var.set(payload.get("request_id"))
+    try:
+        await _process(payload, session_factory=session_factory, redis_conn=redis_conn)
+    finally:
+        request_id_var.reset(token)
+
+
+async def _process(
+    payload: dict,
+    *,
+    session_factory: async_sessionmaker | None,
+    redis_conn,
+) -> None:
     settings = get_settings()
     session_factory = session_factory or SessionLocal
     redis_conn = redis_conn or get_redis_connection()

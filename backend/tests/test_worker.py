@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
+from app.logging_config import request_id_var
 from app.models import Alert, LogEvent
 from app.worker.tasks import process_log_event
 
@@ -267,3 +268,36 @@ async def test_redelivered_event_that_redis_already_has_is_not_counted_twice(
 
     assert redis_conn.zcard("events:checkout") == 1
     assert redis_conn.zcard("errors:checkout") == 1
+
+
+async def test_job_sets_the_request_id_from_the_payload_and_resets_it(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[str | None] = []
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(request_id_var.get())
+    )
+    redis_conn = fakeredis.FakeStrictRedis()
+
+    for _ in range(5):
+        await process_log_event(
+            {**_payload(service="checkout", level="ERROR"), "request_id": "req-9"},
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == ["req-9"]
+    assert request_id_var.get() is None
+
+
+async def test_job_without_a_request_id_still_runs(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await process_log_event(
+        _payload(service="checkout"),
+        session_factory=session_factory,
+        redis_conn=fakeredis.FakeStrictRedis(),
+    )
+
+    async with session_factory() as session:
+        assert len((await session.execute(select(LogEvent))).scalars().all()) == 1
