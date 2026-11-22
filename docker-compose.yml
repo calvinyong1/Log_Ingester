@@ -61,6 +61,40 @@ services:
     depends_on:
       - api
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Old samples are deleted after this long. Prometheus has its own clock for
+      # this; it is not tied to any database prune, so keep the two numbers in step.
+      - --storage.tsdb.retention.time=${METRICS_RETENTION:-15d}
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Anonymous read-only access and framing are what let the React dashboard
+      # embed the panels. Fine locally; deployment needs real auth in front.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+
   db:
     image: postgres:16-alpine
     environment:
@@ -89,3 +123,5 @@ services:
 
 volumes:
   pgdata:
+  promdata:
+  grafanadata:

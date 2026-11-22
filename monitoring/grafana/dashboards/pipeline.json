@@ -1,0 +1,172 @@
+{
+  "uid": "pipeline",
+  "title": "Ingestion pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Ingest rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (level) (rate(log_events_ingested_total[1m]))",
+          "legendFormat": "{{level}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Queue depth",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "ingest_queue_depth",
+          "legendFormat": "waiting"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Queue wait",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(ingest_queue_wait_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingest_queue_wait_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Failed jobs",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "ingest_failed_jobs",
+          "legendFormat": "failed"
+        }
+      ]
+    }
+  ]
+}
