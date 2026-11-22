@@ -12,6 +12,9 @@ from app.logging_config import configure_logging
 # here, before any fork, lets every child inherit them. This only creates the DB
 # engine object; no connection is opened until a job uses it, so forking is safe.
 from app.worker import tasks as _preload_job_modules  # noqa: F401
+from app.worker.prune import ensure_prune_scheduled
+
+logger = logging.getLogger(__name__)
 
 
 class LoggingWorker(Worker):
@@ -40,3 +43,9 @@ class LoggingWorker(Worker):
         super().bootstrap(
             logging_level=settings.log_level, date_format=date_format, log_format=log_format
         )
+        # Start the retention prune chain. The worker is where the job runs, and
+        # it already runs with --with-scheduler. Never block startup on it.
+        try:
+            ensure_prune_scheduled()
+        except Exception:
+            logger.warning("Could not schedule the retention prune", exc_info=True)

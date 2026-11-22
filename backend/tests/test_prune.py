@@ -2,13 +2,24 @@ from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import fakeredis
+import pytest
 import redis
+from rq import Queue
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.metrics import render
 from app.models import Alert, LogEvent
-from app.worker.prune import prune_and_record, prune_old_rows
+from app.worker import prune
+from app.worker.prune import (
+    PRUNE_JOB_PATH,
+    ensure_prune_scheduled,
+    prune_and_record,
+    prune_old_rows,
+    run_prune_job,
+    schedule_next_prune,
+)
 
 NOW = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
 
@@ -123,3 +134,56 @@ async def test_redis_failure_does_not_fail_the_prune(session_factory) -> None:
 
     assert result["log_events"] == 1
     assert await _count(session_factory, LogEvent) == 0
+
+
+@pytest.fixture
+def queue() -> Queue:
+    return Queue("ingest", connection=fakeredis.FakeStrictRedis())
+
+
+@pytest.fixture
+def retention_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("RETENTION_DAYS", "0")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_ensure_prune_scheduled_twice_leaves_one_job(queue: Queue) -> None:
+    assert ensure_prune_scheduled(queue) is True
+    assert ensure_prune_scheduled(queue) is False
+    assert len(queue.scheduled_job_registry) == 1
+
+
+def test_ensure_skips_when_a_prune_job_is_already_queued(queue: Queue) -> None:
+    queue.enqueue(PRUNE_JOB_PATH)
+
+    assert ensure_prune_scheduled(queue) is False
+    assert len(queue.scheduled_job_registry) == 0
+
+
+def test_nothing_is_scheduled_when_retention_is_disabled(
+    queue: Queue, retention_disabled: None
+) -> None:
+    assert ensure_prune_scheduled(queue) is False
+    assert schedule_next_prune(queue) is None
+    assert len(queue.scheduled_job_registry) == 0
+
+
+async def test_run_prune_job_schedules_the_next_run(session_factory, queue: Queue) -> None:
+    await run_prune_job(
+        session_factory=session_factory, redis_conn=fakeredis.FakeStrictRedis(), queue=queue
+    )
+
+    assert len(queue.scheduled_job_registry) == 1
+
+
+async def test_run_prune_job_schedules_next_run_even_if_prune_fails(
+    session_factory, queue: Queue, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(prune, "prune_and_record", mock.AsyncMock(side_effect=RuntimeError("db")))
+
+    with pytest.raises(RuntimeError):
+        await run_prune_job(session_factory=session_factory, queue=queue)
+
+    assert len(queue.scheduled_job_registry) == 1

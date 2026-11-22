@@ -2,6 +2,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import redis
+from rq import Queue
+from rq.job import Job
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import InstrumentedAttribute
@@ -10,9 +12,11 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.metrics import record_pruned
 from app.models import Alert, LogEvent
-from app.queue import get_redis_connection
+from app.queue import get_queue, get_redis_connection
 
 logger = logging.getLogger("app.worker.prune")
+
+PRUNE_JOB_PATH = "app.worker.prune.run_prune_job"
 
 # Event time, not received_at: the retention period is about how old the data is,
 # and received_at only measures how long the event took to be persisted.
@@ -71,3 +75,43 @@ async def prune_and_record(
     except redis.exceptions.RedisError:
         logger.warning("Could not record pruned row counts", exc_info=True)
     return deleted
+
+
+def schedule_next_prune(queue: Queue | None = None) -> Job | None:
+    settings = get_settings()
+    if settings.retention_days <= 0:
+        return None
+    queue = queue or get_queue()
+    # A fresh job id each run, not one fixed id: the running job's own status
+    # write at completion would overwrite a successor scheduled under its id.
+    return queue.enqueue_in(timedelta(seconds=settings.prune_interval_seconds), PRUNE_JOB_PATH)
+
+
+def ensure_prune_scheduled(queue: Queue | None = None) -> bool:
+    """Start the prune chain unless one is already waiting; called at worker startup.
+
+    Only scheduled and queued jobs count: a "started" entry left by a killed worker
+    would otherwise block the chain forever. With several workers starting at once
+    two chains could form, which is harmless (deletes are idempotent) but wasteful.
+    """
+    if get_settings().retention_days <= 0:
+        return False
+    queue = queue or get_queue()
+    waiting = [*queue.scheduled_job_registry.get_job_ids(), *queue.get_job_ids()]
+    for job in Job.fetch_many(waiting, connection=queue.connection):
+        if job is not None and job.func_name == PRUNE_JOB_PATH:
+            return False
+    return schedule_next_prune(queue) is not None
+
+
+async def run_prune_job(
+    *,
+    session_factory: async_sessionmaker | None = None,
+    redis_conn=None,
+    queue: Queue | None = None,
+) -> None:
+    """The RQ job: prune, then schedule the next run even if this one failed."""
+    try:
+        await prune_and_record(session_factory=session_factory, redis_conn=redis_conn)
+    finally:
+        schedule_next_prune(queue)
