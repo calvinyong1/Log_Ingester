@@ -1,10 +1,14 @@
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
+import fakeredis
+import redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.metrics import render
 from app.models import Alert, LogEvent
-from app.worker.prune import prune_old_rows
+from app.worker.prune import prune_and_record, prune_old_rows
 
 NOW = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
 
@@ -95,3 +99,27 @@ async def test_uses_event_time_not_received_at(session_factory) -> None:
     result = await prune_old_rows(session_factory=session_factory, now=NOW, retention_days=10)
 
     assert result["log_events"] == 1
+
+
+async def test_prune_and_record_reports_deleted_rows_to_metrics(session_factory) -> None:
+    redis_conn = fakeredis.FakeStrictRedis()
+    await _seed(session_factory, _event(timedelta(days=400)), _alert(timedelta(days=400)))
+
+    result = await prune_and_record(session_factory=session_factory, redis_conn=redis_conn)
+
+    assert result == {"log_events": 1, "alerts": 1}
+    output = render(redis_conn).decode()
+    assert 'rows_pruned_total{table="log_events"} 1.0' in output
+    assert 'rows_pruned_total{table="alerts"} 1.0' in output
+
+
+async def test_redis_failure_does_not_fail_the_prune(session_factory) -> None:
+    broken = mock.MagicMock()
+    broken.pipeline.side_effect = redis.exceptions.RedisError("down")
+    broken.hincrby.side_effect = redis.exceptions.RedisError("down")
+    await _seed(session_factory, _event(timedelta(days=400)))
+
+    result = await prune_and_record(session_factory=session_factory, redis_conn=broken)
+
+    assert result["log_events"] == 1
+    assert await _count(session_factory, LogEvent) == 0

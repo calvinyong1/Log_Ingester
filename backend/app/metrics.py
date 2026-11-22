@@ -2,7 +2,7 @@ from collections.abc import Iterator
 
 import redis
 from prometheus_client import CollectorRegistry, Counter, disable_created_metrics, generate_latest
-from prometheus_client.core import GaugeMetricFamily, HistogramMetricFamily
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, HistogramMetricFamily
 from prometheus_client.registry import Collector
 from rq import Queue
 from rq.registry import FailedJobRegistry
@@ -21,6 +21,12 @@ QUEUE_WAIT_BUCKETS: tuple[float, ...] = (
 # per-bucket here, cumulative in the output), "inf", "sum" and "count".
 _WAIT_KEY = "metrics:queue_wait"
 _INF_FIELD = "inf"
+
+# Rows the retention prune deleted, per table. Same reason as above: the worker
+# runs the prune, so it adds to a Redis hash (field = table name) and the API
+# renders it. The tables are listed here so both always appear, at 0 until a prune.
+_PRUNED_KEY = "metrics:pruned"
+PRUNED_TABLES = ("log_events", "alerts")
 
 # The `_created` series would only add a second line per label for nothing to read.
 disable_created_metrics()
@@ -49,6 +55,10 @@ def record_queue_wait(redis_conn: redis.Redis, seconds: float) -> None:
     pipe.execute()
 
 
+def record_pruned(redis_conn: redis.Redis, table: str, count: int) -> None:
+    redis_conn.hincrby(_PRUNED_KEY, table, count)
+
+
 class PipelineCollector(Collector):
     """Reads queue state from Redis each time Prometheus scrapes."""
 
@@ -68,6 +78,19 @@ class PipelineCollector(Collector):
         yield failed
 
         yield self._queue_wait()
+        yield self._rows_pruned()
+
+    def _rows_pruned(self) -> CounterMetricFamily:
+        raw = {
+            (k.decode() if isinstance(k, bytes) else k): float(v)
+            for k, v in self._redis.hgetall(_PRUNED_KEY).items()
+        }
+        pruned = CounterMetricFamily(
+            "rows_pruned", "Rows deleted by the retention prune.", labels=["table"]
+        )
+        for table in PRUNED_TABLES:
+            pruned.add_metric([table], raw.get(table, 0.0))
+        return pruned
 
     def _queue_wait(self) -> HistogramMetricFamily:
         raw = {

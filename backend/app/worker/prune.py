@@ -1,13 +1,16 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
+import redis
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.config import get_settings
 from app.db import SessionLocal
+from app.metrics import record_pruned
 from app.models import Alert, LogEvent
+from app.queue import get_redis_connection
 
 logger = logging.getLogger("app.worker.prune")
 
@@ -51,4 +54,20 @@ async def prune_old_rows(
                 break
 
     logger.info("Pruned rows older than %s days: %s", retention_days, deleted)
+    return deleted
+
+
+async def prune_and_record(
+    *, session_factory: async_sessionmaker | None = None, redis_conn=None
+) -> dict[str, int]:
+    deleted = await prune_old_rows(session_factory=session_factory)
+    # Metrics must never fail the job: the rows are already gone, and a retry
+    # would only find nothing to count.
+    try:
+        conn = redis_conn if redis_conn is not None else get_redis_connection()
+        for table, count in deleted.items():
+            if count:
+                record_pruned(conn, table, count)
+    except redis.exceptions.RedisError:
+        logger.warning("Could not record pruned row counts", exc_info=True)
     return deleted
