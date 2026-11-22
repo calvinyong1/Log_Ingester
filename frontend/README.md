@@ -13,7 +13,7 @@ npm run dev
 ```
 
 Requires the backend API running (see the repo root `README.md`); set
-`VITE_API_URL` in `.env` if it's not at `http://localhost:8000`.
+`VITE_API_URL` in `.env` if it's not at `http://localhost:8000`. The "Pipeline" section embeds Grafana panels from `VITE_GRAFANA_URL` (default `http://localhost:3000`).
 
 ## Scripts
 
@@ -29,6 +29,7 @@ The default Docker target builds the bundle and serves it with nginx on port
 
 ```bash
 docker build --build-arg VITE_API_URL=https://api.example.com -t dashboard .
+# VITE_GRAFANA_URL is a build arg too
 ```
 
 `docker-compose.yml` builds the `dev` target instead (Vite with HMR).
