@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 
+import redis
 from rq import get_current_job
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config import get_settings
 from app.db import SessionLocal
 from app.logging_config import attempt_var, request_id_var
+from app.metrics import record_queue_wait
 from app.models import Alert, LogEvent
 from app.queue import get_redis_connection
 from app.worker.alerts import send_alert
@@ -35,6 +37,22 @@ async def process_log_event(
         request_id_var.reset(token)
 
 
+def _record_queue_wait(redis_conn) -> None:
+    """Time from the API enqueueing this job to a worker starting it. Only the first
+    attempt counts: a retry's wait includes its deliberate backoff delay. Metrics
+    must never fail the job, so a Redis error here is logged and ignored."""
+    job = get_current_job()
+    if job is None or attempt_var.get() != 1 or job.enqueued_at is None:
+        return
+    enqueued_at = job.enqueued_at
+    if enqueued_at.tzinfo is None:
+        enqueued_at = enqueued_at.replace(tzinfo=UTC)
+    try:
+        record_queue_wait(redis_conn, (datetime.now(UTC) - enqueued_at).total_seconds())
+    except redis.exceptions.RedisError:
+        logger.warning("Could not record queue wait", exc_info=True)
+
+
 def _current_attempt() -> int | None:
     """1 on the first run, 2 on the first retry, and so on; None outside an RQ job.
     RQ decrements `retries_left` each time a run fails, starting from the Retry max."""
@@ -55,6 +73,7 @@ async def _process(
     settings = get_settings()
     session_factory = session_factory or SessionLocal
     redis_conn = redis_conn or get_redis_connection()
+    _record_queue_wait(redis_conn)
 
     event = LogEvent(
         event_id=payload.get("event_id"),

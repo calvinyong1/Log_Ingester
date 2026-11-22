@@ -1,10 +1,16 @@
+from unittest import mock
+
 import fakeredis
 import pytest
+import redis
+from httpx import AsyncClient
 from prometheus_client.parser import text_string_to_metric_families
 from rq import Queue
 from rq.registry import FailedJobRegistry
 
+from app.main import app
 from app.metrics import INGESTED, QUEUE_WAIT_BUCKETS, record_queue_wait, render
+from app.queue import get_redis_connection
 
 
 @pytest.fixture
@@ -93,3 +99,32 @@ def test_ingested_counter_renders_the_level_label(redis_conn) -> None:
     INGESTED.labels(level="ERROR").inc()
 
     assert _value(render(redis_conn), "log_events_ingested_total", level="ERROR") == before + 1
+
+
+async def test_metrics_endpoint_returns_prometheus_text(client: AsyncClient) -> None:
+    app.dependency_overrides[get_redis_connection] = lambda: fakeredis.FakeStrictRedis()
+
+    r = await client.get("/metrics")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    assert "ingest_queue_depth" in r.text
+
+
+async def test_metrics_returns_503_when_redis_is_down(client: AsyncClient) -> None:
+    broken = mock.MagicMock(spec=redis.Redis)
+    broken.pipeline.side_effect = redis.ConnectionError("down")
+    broken.hgetall.side_effect = redis.ConnectionError("down")
+    broken.llen.side_effect = redis.ConnectionError("down")
+    broken.zcard.side_effect = redis.ConnectionError("down")
+    app.dependency_overrides[get_redis_connection] = lambda: broken
+
+    r = await client.get("/metrics")
+
+    assert r.status_code == 503
+
+
+async def test_metrics_is_not_in_the_openapi_schema(client: AsyncClient) -> None:
+    r = await client.get("/openapi.json")
+
+    assert "/metrics" not in r.json()["paths"]
