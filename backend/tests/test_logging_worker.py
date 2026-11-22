@@ -1,4 +1,6 @@
 import logging
+import subprocess
+import sys
 
 import pytest
 import rq
@@ -63,3 +65,21 @@ def test_bootstrap_removes_the_handlers_the_rq_cli_already_installed(
         logger = logging.getLogger(name)
         assert logger.handlers == []
         assert logger.propagate is True
+
+
+def test_loading_the_worker_class_preloads_the_job_modules() -> None:
+    # RQ forks a child per job, and a module the parent hasn't imported is
+    # imported again in every child (~1.2s of SQLAlchemy, asyncpg and httpx per
+    # job, against ~30ms of real work). A fresh interpreter is needed because
+    # the test process has already imported them.
+    code = (
+        "import sys; import app.worker.logging_worker; "
+        "missing = [m for m in ('app.worker.tasks', 'sqlalchemy', 'asyncpg', 'httpx') "
+        "if m not in sys.modules]; "
+        "print(','.join(missing))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == ""

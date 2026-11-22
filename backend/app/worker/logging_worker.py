@@ -6,6 +6,13 @@ from rq.defaults import DEFAULT_LOGGING_DATE_FORMAT, DEFAULT_LOGGING_FORMAT
 from app.config import get_settings
 from app.logging_config import configure_logging
 
+# RQ forks a child for every job and resolves the job function inside it, so
+# anything the parent hasn't imported is imported again per job: ~1.2s of
+# SQLAlchemy, asyncpg and httpx against ~30ms of real work. Importing the tasks
+# here, before any fork, lets every child inherit them. This only creates the DB
+# engine object; no connection is opened until a job uses it, so forking is safe.
+from app.worker import tasks as _preload_job_modules  # noqa: F401
+
 
 class LoggingWorker(Worker):
     """An RQ worker whose own log lines use the app's format.
