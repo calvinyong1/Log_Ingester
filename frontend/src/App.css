@@ -827,10 +827,28 @@
   margin: 24px 0 10px;
 }
 
-.pipeline-section__header h2 {
+.pipeline-section__toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pipeline-section__toggle h2 {
   font-size: 15px;
   font-weight: 600;
   margin: 0;
+}
+
+.pipeline-section__chevron {
+  color: var(--text-secondary);
+  font-size: 12px;
+  width: 12px;
 }
 
 .pipeline-section__header a {
