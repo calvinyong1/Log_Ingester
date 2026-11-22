@@ -128,3 +128,9 @@ async def test_metrics_is_not_in_the_openapi_schema(client: AsyncClient) -> None
     r = await client.get("/openapi.json")
 
     assert "/metrics" not in r.json()["paths"]
+
+
+def test_no_created_timestamp_series_is_exposed(redis_conn) -> None:
+    INGESTED.labels(level="INFO").inc()
+
+    assert b"_created" not in render(redis_conn)

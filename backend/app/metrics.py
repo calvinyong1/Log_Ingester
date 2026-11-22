@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 
 import redis
-from prometheus_client import CollectorRegistry, Counter, generate_latest
+from prometheus_client import CollectorRegistry, Counter, disable_created_metrics, generate_latest
 from prometheus_client.core import GaugeMetricFamily, HistogramMetricFamily
 from prometheus_client.registry import Collector
 from rq import Queue
@@ -21,6 +21,9 @@ QUEUE_WAIT_BUCKETS: tuple[float, ...] = (
 # per-bucket here, cumulative in the output), "inf", "sum" and "count".
 _WAIT_KEY = "metrics:queue_wait"
 _INF_FIELD = "inf"
+
+# The `_created` series would only add a second line per label for nothing to read.
+disable_created_metrics()
 
 # Per-process, so it resets when the API restarts; Prometheus's rate() copes
 # with that. `level` is the only label: `service` is chosen by callers and would
