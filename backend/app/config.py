@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     timestamp_max_future_seconds: int = 300
     timestamp_max_age_days: int = 30
 
+    # Rows older than this are deleted from both log_events and alerts. One period
+    # for both so an alert's drill-down never points at events that are gone.
+    # 0 turns pruning off. Keep METRICS_RETENTION (Prometheus) in step with it.
+    retention_days: int = 15
+    prune_interval_seconds: int = 3600
+    # Rows per DELETE; each batch commits on its own so ingest is never blocked
+    # behind one huge delete.
+    prune_batch_size: int = 5000
+
 
 @lru_cache
 def get_settings() -> Settings:
