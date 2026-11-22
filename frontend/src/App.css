@@ -820,17 +820,25 @@
 
 /* Pipeline (embedded Grafana panels) */
 
+.pipeline-section {
+  margin: 24px 0 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
 .pipeline-section__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  margin: 24px 0 10px;
+  padding: 12px 16px;
 }
 
 .pipeline-section__toggle {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   padding: 0;
   border: 0;
   background: none;
@@ -847,8 +855,10 @@
 
 .pipeline-section__chevron {
   color: var(--text-secondary);
-  font-size: 12px;
-  width: 12px;
+  font-size: 27px;
+  width: 27px;
+  line-height: 1;
+  text-align: center;
 }
 
 .pipeline-section__header a {
@@ -859,6 +869,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
 }
 
 .pipeline-panels__frame {
