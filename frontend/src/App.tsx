@@ -5,6 +5,7 @@ import { ErrorRateChart } from './components/ErrorRateChart'
 import { FilterBar } from './components/FilterBar'
 import { LogTable } from './components/LogTable'
 import { Pagination } from './components/Pagination'
+import { PipelinePanels } from './components/PipelinePanels'
 import { ServiceRail } from './components/ServiceRail'
 import { StatTiles } from './components/StatTiles'
 import { StatusPill } from './components/StatusPill'
@@ -137,6 +138,8 @@ function App() {
                 }
               />
             </section>
+
+            <PipelinePanels />
           </div>
         </div>
       )}
