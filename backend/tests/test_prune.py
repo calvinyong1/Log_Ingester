@@ -187,3 +187,47 @@ async def test_run_prune_job_schedules_next_run_even_if_prune_fails(
         await run_prune_job(session_factory=session_factory, queue=queue)
 
     assert len(queue.scheduled_job_registry) == 1
+
+
+async def test_max_batches_caps_the_work_of_one_run(session_factory) -> None:
+    await _seed(session_factory, *[_event(timedelta(days=20)) for _ in range(5)])
+
+    result = await prune_old_rows(
+        session_factory=session_factory,
+        now=NOW,
+        retention_days=10,
+        batch_size=2,
+        max_batches=2,
+    )
+
+    assert result["log_events"] == 4
+    assert await _count(session_factory, LogEvent) == 1
+
+
+async def test_prune_job_is_enqueued_with_an_explicit_timeout(queue: Queue) -> None:
+    job = schedule_next_prune(queue)
+
+    assert job is not None
+    assert job.timeout == get_settings().job_timeout_seconds
+
+
+async def test_run_prune_job_comes_back_soon_when_the_cap_was_hit(
+    session_factory, queue: Queue, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(prune, "PRUNE_MAX_BATCHES_PER_RUN", 1)
+    monkeypatch.setenv("PRUNE_BATCH_SIZE", "2")
+    get_settings.cache_clear()
+    try:
+        await _seed(session_factory, *[_event(timedelta(days=400)) for _ in range(5)])
+
+        await run_prune_job(
+            session_factory=session_factory, redis_conn=fakeredis.FakeStrictRedis(), queue=queue
+        )
+
+        due = queue.scheduled_job_registry.get_scheduled_time(
+            queue.scheduled_job_registry.get_job_ids()[0]
+        )
+        wait = (due - datetime.now(UTC)).total_seconds()
+        assert 0 < wait <= prune.PRUNE_CATCHUP_DELAY_SECONDS + 1
+    finally:
+        get_settings.cache_clear()

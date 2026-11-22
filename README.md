@@ -208,9 +208,12 @@ multiprocess mode.
 
 The worker deletes `log_events` (by event `timestamp`) and `alerts` (by `fired_at`)
 older than `RETENTION_DAYS` (default 15; `0` turns it off). One period covers both
-tables so an alert's event drill-down never points at pruned rows. The prune
-re-runs every `PRUNE_INTERVAL_SECONDS` (default hourly) in batches of
-`PRUNE_BATCH_SIZE` rows, each its own transaction, so it never holds ingest up.
+tables so an alert's event drill-down stays whole in the normal case (events with
+old producer timestamps are pruned by that timestamp, so a backfill can lose its
+drill-down early). The prune re-runs every `PRUNE_INTERVAL_SECONDS` (default
+hourly) in batches of `PRUNE_BATCH_SIZE` rows, each its own transaction. It shares
+the worker with ingest, so one run does at most 20 batches per table and, if that
+wasn't enough, comes back after 10 seconds, letting ingest jobs run in between.
 It reports `rows_pruned_total` on `/metrics`. Run one worker: a second one
 starting at the same time can start a second (harmless, wasteful) prune chain.
 

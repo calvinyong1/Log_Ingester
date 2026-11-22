@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     timestamp_max_age_days: int = 30
 
     # Rows older than this are deleted from both log_events and alerts. One period
-    # for both so an alert's drill-down never points at events that are gone.
+    # for both keeps an alert's drill-down whole in the normal case; events a producer
+    # backfilled with old timestamps are pruned by that timestamp, so they can go first.
     # 0 turns pruning off. Keep METRICS_RETENTION (Prometheus) in step with it.
     retention_days: int = 15
     prune_interval_seconds: int = 3600

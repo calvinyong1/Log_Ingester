@@ -18,6 +18,14 @@ logger = logging.getLogger("app.worker.prune")
 
 PRUNE_JOB_PATH = "app.worker.prune.run_prune_job"
 
+# One run does at most this many batches per table, then hands the worker back:
+# the prune shares the only worker with ingest, so an unbounded run (first run on
+# a big table, catching up after downtime) would stall every job queued behind it.
+PRUNE_MAX_BATCHES_PER_RUN = 20
+# When a run hit that cap there is probably more to delete, so it comes back soon
+# instead of waiting a whole PRUNE_INTERVAL_SECONDS.
+PRUNE_CATCHUP_DELAY_SECONDS = 10
+
 # Event time, not received_at: the retention period is about how old the data is,
 # and received_at only measures how long the event took to be persisted.
 _PRUNED_COLUMNS: dict[str, tuple[type, InstrumentedAttribute]] = {
@@ -32,14 +40,17 @@ async def prune_old_rows(
     now: datetime | None = None,
     retention_days: int | None = None,
     batch_size: int | None = None,
+    max_batches: int | None = None,
 ) -> dict[str, int]:
     """Delete log_events and alerts strictly older than the retention period.
 
-    Returns the rows deleted per table. A retention of 0 or less deletes nothing.
+    Returns the rows deleted per table. A retention of 0 or less deletes nothing;
+    each table stops after `max_batches` batches (default PRUNE_MAX_BATCHES_PER_RUN).
     """
     settings = get_settings()
     retention_days = settings.retention_days if retention_days is None else retention_days
     batch_size = settings.prune_batch_size if batch_size is None else batch_size
+    max_batches = PRUNE_MAX_BATCHES_PER_RUN if max_batches is None else max_batches
     deleted = dict.fromkeys(_PRUNED_COLUMNS, 0)
     if retention_days <= 0:
         return deleted
@@ -47,7 +58,7 @@ async def prune_old_rows(
     factory = session_factory or SessionLocal
     cutoff = (now or datetime.now(UTC)) - timedelta(days=retention_days)
     for table, (model, column) in _PRUNED_COLUMNS.items():
-        while True:
+        for _ in range(max_batches):
             # Subquery with LIMIT because Postgres has no DELETE ... LIMIT.
             batch = select(model.id).where(column < cutoff).order_by(model.id).limit(batch_size)
             async with factory() as session:
@@ -77,14 +88,19 @@ async def prune_and_record(
     return deleted
 
 
-def schedule_next_prune(queue: Queue | None = None) -> Job | None:
+def schedule_next_prune(
+    queue: Queue | None = None, delay_seconds: int | None = None
+) -> Job | None:
     settings = get_settings()
     if settings.retention_days <= 0:
         return None
     queue = queue or get_queue()
     # A fresh job id each run, not one fixed id: the running job's own status
     # write at completion would overwrite a successor scheduled under its id.
-    return queue.enqueue_in(timedelta(seconds=settings.prune_interval_seconds), PRUNE_JOB_PATH)
+    delay = settings.prune_interval_seconds if delay_seconds is None else delay_seconds
+    return queue.enqueue_in(
+        timedelta(seconds=delay), PRUNE_JOB_PATH, job_timeout=settings.job_timeout_seconds
+    )
 
 
 def ensure_prune_scheduled(queue: Queue | None = None) -> bool:
@@ -111,7 +127,10 @@ async def run_prune_job(
     queue: Queue | None = None,
 ) -> None:
     """The RQ job: prune, then schedule the next run even if this one failed."""
+    caught_up = True
     try:
-        await prune_and_record(session_factory=session_factory, redis_conn=redis_conn)
+        deleted = await prune_and_record(session_factory=session_factory, redis_conn=redis_conn)
+        cap = PRUNE_MAX_BATCHES_PER_RUN * get_settings().prune_batch_size
+        caught_up = all(count < cap for count in deleted.values())
     finally:
-        schedule_next_prune(queue)
+        schedule_next_prune(queue, None if caught_up else PRUNE_CATCHUP_DELAY_SECONDS)
