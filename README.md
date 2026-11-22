@@ -216,8 +216,8 @@ starting at the same time can start a second (harmless, wasteful) prune chain.
 
 Each run schedules the next, so a new `PRUNE_INTERVAL_SECONDS` takes effect after
 the next run, not at worker start. After an ungraceful restart the RQ scheduler can
-be down for a few minutes (it retries its lock on a maintenance timer), so the next
-prune is late by that much.
+be down for a while (it retries its lock on a maintenance timer; about 13 minutes
+in testing), so the next prune is late by that much.
 
 Ingest accepts producer timestamps up to `TIMESTAMP_MAX_AGE_DAYS` (30) old, so with
 the default retention an event stamped 20 days ago is accepted and then pruned on
