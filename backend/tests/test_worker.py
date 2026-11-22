@@ -1,12 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import fakeredis
 import httpx
 import pytest
+import redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
+from app.logging_config import attempt_var, request_id_var
 from app.models import Alert, LogEvent
 from app.worker.tasks import process_log_event
 
@@ -267,3 +269,169 @@ async def test_redelivered_event_that_redis_already_has_is_not_counted_twice(
 
     assert redis_conn.zcard("events:checkout") == 1
     assert redis_conn.zcard("errors:checkout") == 1
+
+
+async def test_job_sets_the_request_id_from_the_payload_and_resets_it(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[str | None] = []
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(request_id_var.get())
+    )
+    redis_conn = fakeredis.FakeStrictRedis()
+
+    for _ in range(5):
+        await process_log_event(
+            {**_payload(service="checkout", level="ERROR"), "request_id": "req-9"},
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == ["req-9"]
+    assert request_id_var.get() is None
+
+
+async def test_job_without_a_request_id_still_runs(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await process_log_event(
+        _payload(service="checkout"),
+        session_factory=session_factory,
+        redis_conn=fakeredis.FakeStrictRedis(),
+    )
+
+    async with session_factory() as session:
+        assert len((await session.execute(select(LogEvent))).scalars().all()) == 1
+
+
+class _FakeJob:
+    def __init__(self, retries_left: int | None) -> None:
+        self.retries_left = retries_left
+        self.enqueued_at = None
+
+
+@pytest.mark.parametrize(
+    ("retries_left", "expected"), [(None, 1), (3, 1), (2, 2), (0, 4)]
+)
+async def test_job_sets_the_attempt_from_the_retries_left_and_resets_it(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    retries_left: int | None,
+    expected: int,
+) -> None:
+    seen: list[int | None] = []
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: _FakeJob(retries_left))
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(attempt_var.get())
+    )
+
+    redis_conn = fakeredis.FakeStrictRedis()
+    for _ in range(5):
+        await process_log_event(
+            _payload(service="checkout", level="ERROR"),
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == [expected]
+    assert attempt_var.get() is None
+
+
+async def test_attempt_is_unset_outside_an_rq_job(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[int | None] = []
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: None)
+    monkeypatch.setattr(
+        "app.worker.tasks.send_alert", lambda **kwargs: seen.append(attempt_var.get())
+    )
+
+    redis_conn = fakeredis.FakeStrictRedis()
+    for _ in range(5):
+        await process_log_event(
+            _payload(service="checkout", level="ERROR"),
+            session_factory=session_factory,
+            redis_conn=redis_conn,
+        )
+
+    assert seen == [None]
+
+
+class _TimedJob:
+    def __init__(self, retries_left: int | None, waited: float, aware: bool = True) -> None:
+        self.retries_left = retries_left
+        started = datetime.now(UTC) - timedelta(seconds=waited)
+        self.enqueued_at = started if aware else started.replace(tzinfo=None)
+
+
+async def _run_one(session_factory, redis_conn, **payload_extra) -> None:
+    await process_log_event(
+        {**_payload(), **payload_extra},
+        session_factory=session_factory,
+        redis_conn=redis_conn,
+    )
+
+
+async def test_first_attempt_records_the_queue_wait(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    redis_conn = fakeredis.FakeStrictRedis()
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: _TimedJob(3, 2.0))
+
+    await _run_one(session_factory, redis_conn)
+
+    assert int(redis_conn.hget("metrics:queue_wait", "count")) == 1
+    assert float(redis_conn.hget("metrics:queue_wait", "sum")) == pytest.approx(2.0, abs=0.5)
+
+
+async def test_a_naive_enqueued_at_is_treated_as_utc(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    redis_conn = fakeredis.FakeStrictRedis()
+    monkeypatch.setattr(
+        "app.worker.tasks.get_current_job", lambda: _TimedJob(3, 2.0, aware=False)
+    )
+
+    await _run_one(session_factory, redis_conn)
+
+    assert float(redis_conn.hget("metrics:queue_wait", "sum")) == pytest.approx(2.0, abs=0.5)
+
+
+async def test_retry_attempts_record_nothing(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    redis_conn = fakeredis.FakeStrictRedis()
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: _TimedJob(2, 2.0))
+
+    await _run_one(session_factory, redis_conn)
+
+    assert redis_conn.exists("metrics:queue_wait") == 0
+
+
+async def test_no_job_records_nothing(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    redis_conn = fakeredis.FakeStrictRedis()
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: None)
+
+    await _run_one(session_factory, redis_conn)
+
+    assert redis_conn.exists("metrics:queue_wait") == 0
+
+
+async def test_a_redis_error_while_recording_does_not_fail_the_job(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise redis.exceptions.RedisError("down")
+
+    monkeypatch.setattr("app.worker.tasks.get_current_job", lambda: _TimedJob(3, 1.0))
+    monkeypatch.setattr("app.worker.tasks.record_queue_wait", boom)
+
+    await _run_one(session_factory, fakeredis.FakeStrictRedis())
+
+    async with session_factory() as session:
+        assert len((await session.execute(select(LogEvent))).scalars().all()) == 1
+    assert any(r.levelname == "WARNING" for r in caplog.records)

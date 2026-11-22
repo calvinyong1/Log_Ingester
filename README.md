@@ -16,16 +16,17 @@ React dashboard.
 Backend, worker, and dashboard all work end to end locally via Docker
 Compose. Deployment is out of scope for now (see Future improvements).
 
-- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` with an `event_id` (no database `id` — the worker persists it asynchronously). Messages are capped at 8192 characters and timestamps must be within the last 30 days and no more than 5 minutes ahead (`422` otherwise). Failed jobs are retried up to 3 times, and a redelivered `event_id` is stored once. If Redis is unreachable it returns `503`
+- `POST /logs` — requires an `X-API-Key` header; enqueues a log event onto Redis/RQ; returns `202` with an `event_id` (no database `id` — the worker persists it asynchronously). Messages are capped at 8192 characters and timestamps must be within the last 30 days and no more than 5 minutes ahead (`422` otherwise). Failed jobs are retried up to 3 times, and a redelivered `event_id` is stored once. Callers may send their own `event_id` (up to 64 characters of letters, digits, `.`, `_`, `:` and `-`) so a resend after a timeout is safe. If Redis is unreachable it returns `503`
 - `GET /logs` — query with filters (`service`, `level`, `start`, `end`, `limit`, `offset`); open, so the browser dashboard needs no secret
 - `GET /logs/services` — distinct service names, sorted; feeds the dashboard's service filter
 - `GET /logs/histogram` — per-level event counts in fixed time buckets (`service`, `level`, `start`, `end`, `buckets`), computed in the database so the chart covers the whole range
 - `GET /services/error-rates` — each service's current rolling error rate from the worker's Redis window, plus the configured window, threshold and minimum event count
-- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is saved to an `alerts` table first (if that insert fails, the cooldown is released so the next error retries it). The webhook gets a JSON body with a Discord-compatible `content` field plus `alert_id`, `fired_at`, `service`, `total`, `errors` and `error_rate`, and is tried up to 3 times on a transport error or non-2xx response
+- `worker` service — persists events to Postgres, tracks a rolling per-service error rate, and alerts (stdout + optional webhook) when it crosses threshold. Each alert is saved to an `alerts` table first (if that insert fails, the cooldown is released so the next error retries it). The webhook gets a JSON body with a Discord-compatible `content` field plus `alert_id`, `fired_at`, `service`, `total`, `errors` and `error_rate`, and is tried up to 3 times on a transport error or non-2xx response. Mentions are disabled in the payload, so a service named `@everyone` can't ping a Discord server
 - `GET /alerts` and `GET /alerts/{id}/events` — alert history and the events inside the window that tripped each alert; read-only and open. Only the worker writes alerts, so the browser has no write path
-- Dashboard — live filtered feed, stacked-by-severity events-over-time chart, stat tiles
+- Dashboard — live filtered feed with pagination and Pause, a services rail showing each service's alert state, a stacked-by-severity chart and stat tiles that cover the whole range, and alert history
 - SQLAlchemy schema + Alembic migrations for `log_events` and `alerts`
-- Docker Compose for `api` + `worker` + `frontend` + `db` + `redis`
+- `GET /metrics` — Prometheus text with the ingest count, queue depth, failed-job count and queue wait time; Prometheus and Grafana run in the dev compose file and the dashboard embeds the Grafana panels (see Metrics)
+- Docker Compose for `api` + `worker` + `frontend` + `db` + `redis` + `prometheus` + `grafana`
 
 ## Quickstart
 
@@ -159,6 +160,48 @@ Open http://localhost:8000/docs for the interactive OpenAPI UI.
 cd backend && uv run pytest -q             # backend (dev deps aren't in the image)
 cd frontend && npm run test                 # frontend
 ```
+
+## Logging
+
+The API and worker log to stdout. `LOG_LEVEL` sets the verbosity and
+`LOG_FORMAT` the format: `text` (readable, the dev compose default) or `json`
+(one object per line, for log tools; the prod compose file uses it). Switch
+locally with `LOG_FORMAT=json` in the root `.env`, then `docker compose up -d`.
+
+Every API response carries an `X-Request-ID` header (a well-formed one you send
+is kept, otherwise one is generated). The same id appears on the API access line
+and on the worker's lines for that event, so one request can be followed through
+both:
+
+```bash
+docker compose logs api worker | grep <request-id>
+```
+
+## Metrics
+
+`GET /metrics` serves Prometheus text:
+
+| Metric | Meaning |
+|---|---|
+| `log_events_ingested_total{level}` | events accepted by `POST /logs` (resets when the API restarts) |
+| `ingest_queue_depth` | jobs waiting for a worker |
+| `ingest_failed_jobs` | jobs that used up their retries |
+| `ingest_queue_wait_seconds` | histogram of the time from enqueue to a worker starting the job (first attempt only) |
+
+Prometheus (`localhost:9090`) scrapes it every 15s and Grafana (`localhost:3000`,
+anonymous viewing, admin password from `GRAFANA_ADMIN_PASSWORD`) charts it; the
+dashboard in `monitoring/grafana/dashboards/` is loaded automatically and its
+panels appear in a "Pipeline" section of the React app. Prometheus deletes samples
+older than `METRICS_RETENTION` (default `15d`); it can't follow a database prune,
+so keep the two periods equal once the Postgres retention exists.
+
+Reading it: a rising `ingest_queue_depth` while the ingest rate is above zero
+means jobs aren't being drained (workers down or too slow); the wait histogram
+only records when a worker starts a job, so a dead worker shows up as queue depth,
+not as a latency spike. `/metrics` is unauthenticated (counts only), so block it
+at the proxy once deployed. The API keeps its counter in process memory, so run it
+as a single uvicorn process (the Dockerfile does); more would need Prometheus
+multiprocess mode.
 
 ## Layout
 

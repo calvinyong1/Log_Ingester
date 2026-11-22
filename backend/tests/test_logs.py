@@ -6,6 +6,7 @@ import redis
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.metrics import INGESTED
 from app.models import LogEvent
 
 
@@ -295,6 +296,20 @@ async def test_ingest_gives_job_an_event_id_and_retry_policy(
     assert kwargs["job_timeout"] == 60
 
 
+async def test_ingest_puts_the_request_id_in_the_job_payload(
+    client: AsyncClient, fake_queue: mock.MagicMock
+) -> None:
+    r = await client.post(
+        "/logs",
+        json={"service": "x", "level": "INFO", "message": "hi"},
+        headers={"X-Request-ID": "req-123"},
+    )
+
+    (_, job_payload), _ = fake_queue.enqueue.call_args
+    assert job_payload["request_id"] == "req-123"
+    assert r.headers["X-Request-ID"] == "req-123"
+
+
 async def test_ingest_keeps_client_supplied_event_id(
     client: AsyncClient, fake_queue: mock.MagicMock
 ) -> None:
@@ -354,3 +369,32 @@ async def test_ingest_rejects_implausible_timestamps(
 async def test_get_rejects_unknown_level(client: AsyncClient, path: str) -> None:
     r = await client.get(path, params={"level": "TRACE"})
     assert r.status_code == 422
+
+
+def _ingested(level: str) -> float:
+    return INGESTED.labels(level=level)._value.get()
+
+
+async def test_accepted_event_increments_the_ingest_counter(client: AsyncClient) -> None:
+    before = _ingested("ERROR")
+
+    r = await client.post(
+        "/logs", json={"service": "checkout", "level": "ERROR", "message": "boom"}
+    )
+
+    assert r.status_code == 202
+    assert _ingested("ERROR") == before + 1
+
+
+async def test_enqueue_failure_does_not_increment_the_counter(
+    client: AsyncClient, fake_queue: mock.MagicMock
+) -> None:
+    fake_queue.enqueue.side_effect = redis.exceptions.ConnectionError("down")
+    before = _ingested("ERROR")
+
+    r = await client.post(
+        "/logs", json={"service": "checkout", "level": "ERROR", "message": "boom"}
+    )
+
+    assert r.status_code == 503
+    assert _ingested("ERROR") == before

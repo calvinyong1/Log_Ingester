@@ -17,6 +17,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       ENV: development
       LOG_LEVEL: INFO
+      LOG_FORMAT: ${LOG_FORMAT:-text}
       CORS_ORIGINS: http://localhost:5173
       API_KEY: ${API_KEY}
     ports:
@@ -32,12 +33,13 @@ services:
   worker:
     build:
       context: ./backend
-    command: ["sh", "-c", "uv run --no-dev rq worker --with-scheduler --url \"$$REDIS_URL\" ingest"]
+    command: ["sh", "-c", "uv run --no-dev rq worker --with-scheduler --worker-class app.worker.logging_worker.LoggingWorker --url \"$$REDIS_URL\" ingest"]
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/logs
       REDIS_URL: redis://redis:6379/0
       ENV: development
       LOG_LEVEL: INFO
+      LOG_FORMAT: ${LOG_FORMAT:-text}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     depends_on:
       db:
@@ -51,6 +53,7 @@ services:
       target: dev
     environment:
       VITE_API_URL: http://localhost:8000
+      VITE_GRAFANA_URL: http://localhost:3000
     ports:
       - "5173:5173"
     volumes:
@@ -58,6 +61,40 @@ services:
       - ./frontend/index.html:/app/index.html
     depends_on:
       - api
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Old samples are deleted after this long. Prometheus has its own clock for
+      # this; it is not tied to any database prune, so keep the two numbers in step.
+      - --storage.tsdb.retention.time=${METRICS_RETENTION:-15d}
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Anonymous read-only access and framing are what let the React dashboard
+      # embed the panels. Fine locally; deployment needs real auth in front.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
 
   db:
     image: postgres:16-alpine
@@ -87,3 +124,5 @@ services:
 
 volumes:
   pgdata:
+  promdata:
+  grafanadata:

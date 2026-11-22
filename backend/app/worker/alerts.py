@@ -23,10 +23,12 @@ def send_alert(
         f"[ALERT] {service}: error rate {error_rate:.0%} "
         f"({errors}/{total} events) exceeds threshold"
     )
-    # Printed rather than logged: the worker process has no logging handlers
-    # configured, and Python's default "last resort" handler would otherwise
-    # double up this line on stderr alongside this print on stdout.
-    print(message)
+    # The message keeps the "[ALERT]" prefix so `docker compose logs | grep ALERT` works
+    # in both log formats.
+    logger.warning(
+        message,
+        extra={"service": service, "alert_id": alert_id, "error_rate": error_rate},
+    )
 
     if not webhook_url:
         return
@@ -45,17 +47,30 @@ def send_alert(
         "errors": errors,
         "error_rate": error_rate,
     }
-    for attempt in range(max_attempts):
+    for attempt in range(1, max_attempts + 1):
         try:
             response = httpx.post(webhook_url, json=payload, timeout=timeout_seconds)
             response.raise_for_status()
             return
-        except httpx.HTTPError:
-            if attempt + 1 < max_attempts:
-                time.sleep(2**attempt)
+        except httpx.HTTPError as exc:
+            if attempt < max_attempts:
+                logger.warning(
+                    "Webhook attempt %d/%d failed for %s: %s",
+                    attempt,
+                    max_attempts,
+                    service,
+                    _describe(exc),
+                )
+                time.sleep(2 ** (attempt - 1))
             else:
                 logger.exception(
                     "Failed to deliver alert webhook for %s after %d attempts",
                     service,
                     max_attempts,
                 )
+
+
+def _describe(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__

@@ -90,12 +90,27 @@ def test_gives_up_after_max_attempts_without_raising(
 ) -> None:
     receiver = Receiver([500, 500, 500])
 
-    with caplog.at_level(logging.ERROR, logger="app.worker.alerts"):
+    with caplog.at_level(logging.WARNING, logger="app.worker.alerts"):
         _send(receiver, monkeypatch)
 
     assert len(receiver.posted) == 3
     assert sleeps == [1, 2]
-    assert len([r for r in caplog.records if r.name == "app.worker.alerts"]) == 1
+    records = [r for r in caplog.records if r.name == "app.worker.alerts"]
+    assert len([r for r in records if r.levelno == logging.ERROR]) == 1
+    assert len([r for r in records if "Webhook attempt" in r.getMessage()]) == 2
+
+
+def test_failed_attempt_warning_includes_the_status_code(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], caplog: pytest.LogCaptureFixture
+) -> None:
+    receiver = Receiver([500, 204])
+
+    with caplog.at_level(logging.WARNING, logger="app.worker.alerts"):
+        _send(receiver, monkeypatch)
+
+    (warning,) = [r for r in caplog.records if "Webhook attempt" in r.getMessage()]
+    assert "1/3" in warning.getMessage()
+    assert "HTTP 500" in warning.getMessage()
 
 
 def test_timeout_is_retried(monkeypatch: pytest.MonkeyPatch, sleeps: list[float]) -> None:
@@ -118,11 +133,16 @@ def test_single_attempt_does_not_sleep(
 
 
 def test_no_webhook_url_makes_no_request(
-    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float], caplog: pytest.LogCaptureFixture
 ) -> None:
     receiver = Receiver([])
 
-    _send(receiver, monkeypatch, webhook_url=None)
+    with caplog.at_level(logging.WARNING, logger="app.worker.alerts"):
+        _send(receiver, monkeypatch, webhook_url=None)
 
     assert receiver.posted == []
-    assert "[ALERT] checkout:" in capsys.readouterr().out
+    (alert,) = [r for r in caplog.records if r.name == "app.worker.alerts"]
+    assert alert.levelno == logging.WARNING
+    assert alert.getMessage().startswith("[ALERT] checkout:")
+    assert alert.service == "checkout"
+    assert alert.alert_id == 7

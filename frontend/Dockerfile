@@ -22,6 +22,8 @@ FROM deps AS build
 # be supplied here rather than at container start.
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_GRAFANA_URL
+ENV VITE_GRAFANA_URL=$VITE_GRAFANA_URL
 
 COPY . .
 RUN npm run build

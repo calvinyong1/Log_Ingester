@@ -52,6 +52,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       ENV: production
       LOG_LEVEL: INFO
+      LOG_FORMAT: json
       CORS_ORIGINS: https://${DOMAIN}
       API_KEY: ${API_KEY:?set API_KEY in .env}
     healthcheck:
@@ -67,12 +68,13 @@ services:
 
   worker:
     <<: *backend
-    command: ["sh", "-c", "uv run --no-dev rq worker --with-scheduler --url \"$$REDIS_URL\" ingest"]
+    command: ["sh", "-c", "uv run --no-dev rq worker --with-scheduler --worker-class app.worker.logging_worker.LoggingWorker --url \"$$REDIS_URL\" ingest"]
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/logs
       REDIS_URL: redis://redis:6379/0
       ENV: production
       LOG_LEVEL: INFO
+      LOG_FORMAT: json
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     depends_on:
       migrate:

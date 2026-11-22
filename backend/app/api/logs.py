@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import require_api_key
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.logging_config import request_id_var
+from app.metrics import INGESTED
 from app.models import LogEvent
 from app.queue import get_queue
 from app.schemas import (
@@ -62,6 +64,7 @@ async def ingest_log(
             "app.worker.tasks.process_log_event",
             {
                 "event_id": event_id,
+                "request_id": request_id_var.get(),
                 "service": payload.service,
                 "level": payload.level,
                 "message": payload.message,
@@ -75,6 +78,7 @@ async def ingest_log(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Ingest queue unavailable, retry shortly"
         ) from exc
+    INGESTED.labels(level=payload.level).inc()
     return LogEventAccepted(
         event_id=event_id,
         service=payload.service,
