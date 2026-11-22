@@ -2,7 +2,8 @@
 
 Standard library only, so the scripts run anywhere with Python 3.10+ and no
 install step. Events are sent without a `timestamp`, so the API stamps them
-with the current time and they land in the dashboard's recent ranges.
+with the current time and they land in the dashboard's recent ranges. Each one
+carries its own `event_id`, as a real producer would, so a resend is safe.
 """
 
 import argparse
@@ -13,6 +14,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import Counter
 from collections.abc import Callable
 
@@ -76,7 +78,14 @@ def pick_level(rng: random.Random, error_rate: float) -> str:
 def build_event(rng: random.Random, service: str, error_rate: float) -> dict:
     level = pick_level(rng, error_rate)
     template = SERVICES[service][1][level]
-    return {"service": service, "level": level, "message": template.format(**_fields(rng))}
+    return {
+        "service": service,
+        "level": level,
+        "message": template.format(**_fields(rng)),
+        # uuid4, not `rng`: --seed repeats the same traffic, and a repeated
+        # event_id would be treated as a duplicate and dropped by the worker.
+        "event_id": uuid.uuid4().hex,
+    }
 
 
 def post_event(url: str, api_key: str, event: dict) -> None:
