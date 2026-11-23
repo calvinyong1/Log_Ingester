@@ -61,6 +61,12 @@ class LogEventPage(BaseModel):
     total: int
 
 
+class LogEventCursorPage(BaseModel):
+    items: list[LogEventOut]
+    # Position to pass as `cursor` for the next (older) page; null on the last page.
+    next_cursor: str | None
+
+
 class ServiceErrorRate(BaseModel):
     service: str
     total: int

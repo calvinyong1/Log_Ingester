@@ -6,7 +6,7 @@ import redis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 from rq import Queue, Retry
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_api_key
@@ -15,13 +15,14 @@ from app.db import get_session
 from app.logging_config import request_id_var
 from app.metrics import INGESTED
 from app.models import LogEvent
+from app.pagination import decode_cursor, encode_cursor
 from app.queue import get_queue
 from app.schemas import (
     HistogramBucket,
     LogEventAccepted,
+    LogEventCursorPage,
     LogEventIn,
     LogEventOut,
-    LogEventPage,
     LogHistogram,
     LogLevel,
 )
@@ -180,7 +181,7 @@ async def log_histogram(
     )
 
 
-@router.get("", response_model=LogEventPage)
+@router.get("", response_model=LogEventCursorPage)
 async def list_logs(
     service: str | None = None,
     level: list[LogLevel] | None = Query(None),
@@ -190,24 +191,44 @@ async def list_logs(
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    cursor: str | None = Query(
+        None, max_length=200, description="next_cursor from the previous page"
+    ),
     session: AsyncSession = Depends(get_session),
-) -> LogEventPage:
+) -> LogEventCursorPage:
     filters = _event_filters(service, level, q)
     if start is not None:
         filters.append(LogEvent.timestamp >= start)
     if end is not None:
         filters.append(LogEvent.timestamp < end)
-
-    base = select(LogEvent).where(*filters)
-    items = (
-        await session.execute(
-            base.order_by(LogEvent.timestamp.desc()).limit(limit).offset(offset)
+    if cursor is not None:
+        try:
+            cursor_timestamp, cursor_id = decode_cursor(cursor)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid cursor") from exc
+        filters.append(
+            tuple_(LogEvent.timestamp, LogEvent.id) < tuple_(cursor_timestamp, cursor_id)
         )
-    ).scalars().all()
-    total = await session.scalar(select(func.count()).select_from(base.subquery())) or 0
 
-    return LogEventPage(
-        items=[LogEventOut.model_validate(e) for e in items],
-        total=total,
+    # id breaks ties between events with the same timestamp, which keyset paging
+    # needs: without it a page boundary inside a tie would skip or repeat rows.
+    # One extra row says whether an older page exists, so there is no COUNT(*).
+    rows = (
+        (
+            await session.execute(
+                select(LogEvent)
+                .where(*filters)
+                .order_by(LogEvent.timestamp.desc(), LogEvent.id.desc())
+                .limit(limit + 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    page = rows[:limit]
+    next_cursor = (
+        encode_cursor(page[-1].timestamp, page[-1].id) if len(rows) > limit else None
+    )
+    return LogEventCursorPage(
+        items=[LogEventOut.model_validate(e) for e in page], next_cursor=next_cursor
     )
