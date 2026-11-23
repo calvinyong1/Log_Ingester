@@ -44,6 +44,26 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _escape_like(text: str) -> str:
+    # Without this, a search for "50%" or "a_b" would treat % and _ as wildcards.
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _event_filters(
+    service: str | None, levels: list[LogLevel] | None, q: str | None
+) -> list:
+    """Conditions shared by the list and histogram endpoints (time bounds differ)."""
+    filters = []
+    if service is not None:
+        filters.append(LogEvent.service == service)
+    if levels:
+        filters.append(LogEvent.level.in_(levels))
+    if q is not None and q.strip():
+        pattern = f"%{_escape_like(q.strip())}%"
+        filters.append(LogEvent.message.ilike(pattern, escape="\\"))
+    return filters
+
+
 @router.post(
     "",
     response_model=LogEventAccepted,
@@ -99,17 +119,16 @@ async def list_services(session: AsyncSession = Depends(get_session)) -> list[st
 @router.get("/histogram", response_model=LogHistogram)
 async def log_histogram(
     service: str | None = None,
-    level: LogLevel | None = None,
+    level: list[LogLevel] | None = Query(None),
+    q: str | None = Query(
+        None, max_length=200, description="Case-insensitive substring of the message"
+    ),
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     buckets: int = Query(24, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ) -> LogHistogram:
-    filters = []
-    if service is not None:
-        filters.append(LogEvent.service == service)
-    if level is not None:
-        filters.append(LogEvent.level == level)
+    filters = _event_filters(service, level, q)
 
     end = _as_utc(end) if end else datetime.now(UTC)
     if start is None:
@@ -164,18 +183,17 @@ async def log_histogram(
 @router.get("", response_model=LogEventPage)
 async def list_logs(
     service: str | None = None,
-    level: LogLevel | None = None,
+    level: list[LogLevel] | None = Query(None),
+    q: str | None = Query(
+        None, max_length=200, description="Case-insensitive substring of the message"
+    ),
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ) -> LogEventPage:
-    filters = []
-    if service is not None:
-        filters.append(LogEvent.service == service)
-    if level is not None:
-        filters.append(LogEvent.level == level)
+    filters = _event_filters(service, level, q)
     if start is not None:
         filters.append(LogEvent.timestamp >= start)
     if end is not None:

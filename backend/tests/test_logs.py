@@ -398,3 +398,147 @@ async def test_enqueue_failure_does_not_increment_the_counter(
 
     assert r.status_code == 503
     assert _ingested("ERROR") == before
+
+
+async def _seed_levels(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    for level in ("INFO", "ERROR", "WARNING"):
+        await _seed(
+            session_factory,
+            service="a",
+            level=level,
+            message=level.lower(),
+            timestamp="2026-04-25T12:30:00Z",
+        )
+
+
+async def test_list_filters_by_several_levels(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    r = await client.get("/logs", params={"level": ["ERROR", "WARNING"]})
+
+    page = r.json()
+    assert page["total"] == 2
+    assert {item["message"] for item in page["items"]} == {"error", "warning"}
+
+
+async def test_duplicate_levels_are_harmless(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    r = await client.get("/logs", params={"level": ["ERROR", "ERROR"]})
+
+    page = r.json()
+    assert page["total"] == 1
+    assert page["items"][0]["message"] == "error"
+
+
+async def test_unknown_level_in_the_list_is_rejected(client: AsyncClient) -> None:
+    r = await client.get("/logs", params={"level": ["ERROR", "TRACE"]})
+
+    assert r.status_code == 422
+
+
+async def test_histogram_filters_by_several_levels(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    body = await _histogram(
+        client,
+        level=["ERROR", "WARNING"],
+        start="2026-04-25T12:00:00Z",
+        end="2026-04-25T13:00:00Z",
+    )
+
+    assert body["total"] == 2
+    assert sum(sum(b["counts"].values()) for b in body["buckets"]) == 2
+    assert sum(b["counts"]["INFO"] for b in body["buckets"]) == 0
+
+
+async def _seed_messages(
+    session_factory: async_sessionmaker[AsyncSession],
+    *messages: str,
+    service: str = "a",
+    level: str = "INFO",
+    timestamp: str = "2026-04-25T12:30:00Z",
+) -> None:
+    for message in messages:
+        await _seed(
+            session_factory,
+            service=service,
+            level=level,
+            message=message,
+            timestamp=timestamp,
+        )
+
+
+async def _messages(client: AsyncClient, **params: object) -> tuple[int, set[str]]:
+    r = await client.get("/logs", params=params)
+    assert r.status_code == 200, r.text
+    page = r.json()
+    return page["total"], {item["message"] for item in page["items"]}
+
+
+async def test_search_is_a_case_insensitive_substring(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "Connection Refused by db", "ok")
+
+    assert await _messages(client, q="refused") == (1, {"Connection Refused by db"})
+    assert (await _messages(client))[0] == 2
+
+
+async def test_search_trims_and_blank_is_ignored(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "ok", "boom")
+
+    assert await _messages(client, q="  ok  ") == (1, {"ok"})
+    assert (await _messages(client, q=""))[0] == 2
+    assert (await _messages(client, q="   "))[0] == 2
+
+
+async def test_search_treats_wildcards_literally(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "50% done", "50 percent", "a_b", "axb", "C:\\temp")
+
+    assert await _messages(client, q="50%") == (1, {"50% done"})
+    assert await _messages(client, q="a_b") == (1, {"a_b"})
+    assert await _messages(client, q="\\temp") == (1, {"C:\\temp"})
+
+
+async def test_search_combines_with_service_and_levels(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "timeout talking to db", service="a", level="ERROR")
+    await _seed_messages(session_factory, "timeout talking to db", service="b", level="ERROR")
+    await _seed_messages(session_factory, "timeout talking to db", service="a", level="INFO")
+    await _seed_messages(session_factory, "all fine", service="a", level="ERROR")
+
+    result = await _messages(client, q="timeout", service="a", level=["ERROR", "WARNING"])
+
+    assert result == (1, {"timeout talking to db"})
+
+
+async def test_search_length_limit(client: AsyncClient) -> None:
+    ok = await client.get("/logs", params={"q": "x" * 200})
+    too_long = await client.get("/logs", params={"q": "x" * 201})
+
+    assert ok.status_code == 200
+    assert too_long.status_code == 422
+
+
+async def test_histogram_respects_search_and_starts_at_first_match(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "alpha", timestamp="2026-04-25T10:00:00Z")
+    await _seed_messages(session_factory, "beta", timestamp="2026-04-25T12:30:00Z")
+
+    body = await _histogram(client, q="beta", end="2026-04-25T13:00:00Z")
+
+    assert body["total"] == 1
+    assert body["buckets"][0]["start"] >= "2026-04-25T12:00:00Z"
