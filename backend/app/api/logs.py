@@ -44,6 +44,16 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _event_filters(service: str | None, levels: list[LogLevel] | None) -> list:
+    """Conditions shared by the list and histogram endpoints (time bounds differ)."""
+    filters = []
+    if service is not None:
+        filters.append(LogEvent.service == service)
+    if levels:
+        filters.append(LogEvent.level.in_(levels))
+    return filters
+
+
 @router.post(
     "",
     response_model=LogEventAccepted,
@@ -99,17 +109,13 @@ async def list_services(session: AsyncSession = Depends(get_session)) -> list[st
 @router.get("/histogram", response_model=LogHistogram)
 async def log_histogram(
     service: str | None = None,
-    level: LogLevel | None = None,
+    level: list[LogLevel] | None = Query(None),
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     buckets: int = Query(24, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ) -> LogHistogram:
-    filters = []
-    if service is not None:
-        filters.append(LogEvent.service == service)
-    if level is not None:
-        filters.append(LogEvent.level == level)
+    filters = _event_filters(service, level)
 
     end = _as_utc(end) if end else datetime.now(UTC)
     if start is None:
@@ -164,18 +170,14 @@ async def log_histogram(
 @router.get("", response_model=LogEventPage)
 async def list_logs(
     service: str | None = None,
-    level: LogLevel | None = None,
+    level: list[LogLevel] | None = Query(None),
     start: datetime | None = Query(None, description="Inclusive lower bound on timestamp"),
     end: datetime | None = Query(None, description="Exclusive upper bound on timestamp"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ) -> LogEventPage:
-    filters = []
-    if service is not None:
-        filters.append(LogEvent.service == service)
-    if level is not None:
-        filters.append(LogEvent.level == level)
+    filters = _event_filters(service, level)
     if start is not None:
         filters.append(LogEvent.timestamp >= start)
     if end is not None:

@@ -398,3 +398,61 @@ async def test_enqueue_failure_does_not_increment_the_counter(
 
     assert r.status_code == 503
     assert _ingested("ERROR") == before
+
+
+async def _seed_levels(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    for level in ("INFO", "ERROR", "WARNING"):
+        await _seed(
+            session_factory,
+            service="a",
+            level=level,
+            message=level.lower(),
+            timestamp="2026-04-25T12:30:00Z",
+        )
+
+
+async def test_list_filters_by_several_levels(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    r = await client.get("/logs", params={"level": ["ERROR", "WARNING"]})
+
+    page = r.json()
+    assert page["total"] == 2
+    assert {item["message"] for item in page["items"]} == {"error", "warning"}
+
+
+async def test_duplicate_levels_are_harmless(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    r = await client.get("/logs", params={"level": ["ERROR", "ERROR"]})
+
+    page = r.json()
+    assert page["total"] == 1
+    assert page["items"][0]["message"] == "error"
+
+
+async def test_unknown_level_in_the_list_is_rejected(client: AsyncClient) -> None:
+    r = await client.get("/logs", params={"level": ["ERROR", "TRACE"]})
+
+    assert r.status_code == 422
+
+
+async def test_histogram_filters_by_several_levels(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_levels(session_factory)
+
+    body = await _histogram(
+        client,
+        level=["ERROR", "WARNING"],
+        start="2026-04-25T12:00:00Z",
+        end="2026-04-25T13:00:00Z",
+    )
+
+    assert body["total"] == 2
+    assert sum(sum(b["counts"].values()) for b in body["buckets"]) == 2
+    assert sum(b["counts"]["INFO"] for b in body["buckets"]) == 0
