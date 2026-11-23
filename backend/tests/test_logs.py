@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 from unittest import mock
 
@@ -589,6 +590,19 @@ async def test_no_cursor_when_everything_fits_on_one_page(
 
 @pytest.mark.parametrize("cursor", ["garbage", "!!!", "x" * 201])
 async def test_invalid_cursor_is_a_422(client: AsyncClient, cursor: str) -> None:
+    r = await client.get("/logs", params={"cursor": cursor})
+
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "raw", ["0001-01-01T00:00:00+01:00|5", "9999-12-31T23:59:59-01:00|5"]
+)
+async def test_cursor_timestamp_outside_utc_range_is_a_422(
+    client: AsyncClient, raw: str
+) -> None:
+    cursor = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
     r = await client.get("/logs", params={"cursor": cursor})
 
     assert r.status_code == 422

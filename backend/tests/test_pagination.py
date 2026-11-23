@@ -43,3 +43,18 @@ def test_decode_rejects_an_id_beyond_the_32_bit_column() -> None:
 
     with pytest.raises(ValueError):
         decode_cursor(cursor)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "0001-01-01T00:00:00+01:00|5",  # converting to UTC falls before year 1
+        "9999-12-31T23:59:59-01:00|5",  # ... or after year 9999
+    ],
+)
+def test_decode_rejects_a_timestamp_that_overflows_when_converted_to_utc(raw: str) -> None:
+    # astimezone() raises OverflowError, which is not a ValueError.
+    cursor = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    with pytest.raises(ValueError):
+        decode_cursor(cursor)

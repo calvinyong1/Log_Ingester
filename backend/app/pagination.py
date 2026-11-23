@@ -32,4 +32,9 @@ def decode_cursor(cursor: str) -> tuple[datetime, int]:
         raise ValueError("cursor id out of range")
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
-    return timestamp.astimezone(UTC), event_id
+    try:
+        return timestamp.astimezone(UTC), event_id
+    except OverflowError as exc:
+        # An offset can push a year-1 or year-9999 timestamp out of range when it is
+        # converted to UTC; OverflowError is not a ValueError, so callers would miss it.
+        raise ValueError("cursor timestamp out of range") from exc
