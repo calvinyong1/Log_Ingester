@@ -52,3 +52,4 @@ coverage/
 # Logs and build info
 *.log
 *.tsbuildinfo
+backups/
