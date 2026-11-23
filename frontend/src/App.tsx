@@ -22,7 +22,7 @@ const DEFAULT_FILTERS: LogFilters = {
   service: '',
   levels: [],
   q: '',
-  rangeMinutes: 60,
+  range: { kind: 'preset', minutes: 60 },
 }
 
 function App() {
@@ -121,7 +121,7 @@ function App() {
           <div className="app__content">
             <StatTiles
               histogram={histogram.data}
-              rangeLabel={rangeLabel(filters.rangeMinutes)}
+              rangeLabel={rangeLabel(filters.range)}
               alerting={
                 rows && rates.data
                   ? { count: alerting ?? 0, of: rows.length, windowSeconds: rates.data.window_seconds }

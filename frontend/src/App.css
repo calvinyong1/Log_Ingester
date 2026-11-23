@@ -179,6 +179,31 @@
   padding: 14px 16px;
 }
 
+.filter-bar__range {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filter-bar__custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.filter-bar__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 14px;
+}
+
+.filter-bar__error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--level-error);
+}
+
 .filter-bar__presets {
   display: flex;
   flex-wrap: wrap;
@@ -241,7 +266,8 @@
 }
 
 .filter-field select,
-.filter-field input[type='search'] {
+.filter-field input[type='search'],
+.filter-field input[type='datetime-local'] {
   font: inherit;
   font-size: 13px;
   min-height: 44px;

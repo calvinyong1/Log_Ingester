@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { LEVEL_COLOR } from '../levelStyle'
-import { RANGE_PRESETS } from '../ranges'
+import { RANGE_PRESETS, customRangeError, toLocalInputValue } from '../ranges'
 import type { LogFilters, LogLevel } from '../types'
 import { LOG_LEVELS } from '../types'
 
@@ -15,6 +15,13 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ filters, services, onChange }: FilterBarProps) {
+  // The From/To inputs are a draft: a half-entered or backwards range is shown
+  // with a message but never applied, so the data on screen is always for a valid one.
+  const [customMode, setCustomMode] = useState(filters.range.kind === 'custom')
+  const [from, setFrom] = useState(filters.range.kind === 'custom' ? filters.range.from : '')
+  const [to, setTo] = useState(filters.range.kind === 'custom' ? filters.range.to : '')
+  const rangeError = customMode ? customRangeError(from, to) : null
+
   const [text, setText] = useState(filters.q)
   const timer = useRef<number | undefined>(undefined)
   // The debounce fires later; it must apply to the filters as they are then, not
@@ -48,6 +55,23 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
     onChange({ ...filters, levels: LOG_LEVELS.filter((l) => selected.has(l)) })
   }
 
+  function applyCustom(nextFrom: string, nextTo: string) {
+    setFrom(nextFrom)
+    setTo(nextTo)
+    if (customRangeError(nextFrom, nextTo) === null) {
+      onChange({ ...filters, range: { kind: 'custom', from: nextFrom, to: nextTo } })
+    }
+  }
+
+  function selectCustom() {
+    if (customMode) return
+    setCustomMode(true)
+    // Start from the window being looked at, so choosing Custom shows the same data
+    // and the person only has to adjust it.
+    const minutes = (filters.range.kind === 'preset' ? filters.range.minutes : null) ?? 60
+    applyCustom(toLocalInputValue(new Date(Date.now() - minutes * 60_000)), '')
+  }
+
   // Until the list loads (or if it fails), keep the selected service as an
   // option so the select never shows a value it can't represent.
   const options =
@@ -57,18 +81,63 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
 
   return (
     <div className="filter-bar" role="group" aria-label="Filters">
-      <div className="filter-bar__presets">
-        {RANGE_PRESETS.map((preset) => (
+      <div className="filter-bar__range">
+        <div className="filter-bar__presets">
+          {RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className="preset-button"
+              aria-pressed={
+                filters.range.kind === 'preset' && filters.range.minutes === preset.minutes
+              }
+              onClick={() => {
+                setCustomMode(false)
+                onChange({ ...filters, range: { kind: 'preset', minutes: preset.minutes } })
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
           <button
-            key={preset.label}
             type="button"
             className="preset-button"
-            aria-pressed={filters.rangeMinutes === preset.minutes}
-            onClick={() => onChange({ ...filters, rangeMinutes: preset.minutes })}
+            aria-pressed={customMode}
+            onClick={selectCustom}
           >
-            {preset.label}
+            Custom
           </button>
-        ))}
+        </div>
+
+        {customMode && (
+          <div className="filter-bar__custom">
+            <label className="filter-field">
+              <span>From</span>
+              <input
+                type="datetime-local"
+                value={from}
+                onChange={(e) => applyCustom(e.target.value, to)}
+              />
+            </label>
+            <label className="filter-field">
+              <span>To</span>
+              <input
+                type="datetime-local"
+                value={to}
+                aria-describedby="range-to-hint"
+                onChange={(e) => applyCustom(from, e.target.value)}
+              />
+            </label>
+            <span id="range-to-hint" className="filter-bar__hint">
+              Leave To empty for up to now
+            </span>
+            {rangeError && (
+              <p className="filter-bar__error" role="alert">
+                {rangeError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="filter-bar__fields">

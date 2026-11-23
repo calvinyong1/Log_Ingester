@@ -5,6 +5,7 @@ import type {
   LogHistogram,
   ServiceErrorRates,
 } from './types'
+import { customBounds, customRangeError } from './ranges'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -16,9 +17,17 @@ function filterParams(filters: LogFilters): URLSearchParams {
   for (const level of filters.levels) params.append('level', level)
   const q = filters.q.trim()
   if (q) params.set('q', q)
-  if (filters.rangeMinutes != null) {
-    const start = new Date(Date.now() - filters.rangeMinutes * 60_000)
+  const { range } = filters
+  if (range.kind === 'preset') {
+    if (range.minutes != null) {
+      params.set('start', new Date(Date.now() - range.minutes * 60_000).toISOString())
+    }
+  } else if (customRangeError(range.from, range.to) === null) {
+    // The filter bar never applies an invalid range; this guards the one place a
+    // bad date would otherwise throw out of toISOString().
+    const { start, end } = customBounds(range.from, range.to)
     params.set('start', start.toISOString())
+    if (end) params.set('end', end.toISOString())
   }
   return params
 }
