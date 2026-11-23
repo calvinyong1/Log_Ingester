@@ -5,7 +5,8 @@ import type { LogFilters, LogLevel } from '../types'
 import { LOG_LEVELS } from '../types'
 
 // Wait for a pause in typing before querying: each change refetches the table and
-// the chart, so one request per keystroke would be wasteful.
+// the chart, so one request per keystroke would be wasteful. The date inputs need it
+// too: while a year is typed they emit a complete value per keystroke (0002, 0202, ...).
 export const SEARCH_DEBOUNCE_MS = 300
 
 interface FilterBarProps {
@@ -20,7 +21,11 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
   const [customMode, setCustomMode] = useState(filters.range.kind === 'custom')
   const [from, setFrom] = useState(filters.range.kind === 'custom' ? filters.range.from : '')
   const [to, setTo] = useState(filters.range.kind === 'custom' ? filters.range.to : '')
-  const rangeError = customMode ? customRangeError(from, to) : null
+  // What the message and the query are based on: the draft as it was when typing
+  // paused, so a half-typed year doesn't flash an error or fire a request.
+  const [settled, setSettled] = useState({ from, to })
+  const rangeTimer = useRef<number | undefined>(undefined)
+  const rangeError = customMode ? customRangeError(settled.from, settled.to) : null
 
   const [text, setText] = useState(filters.q)
   const timer = useRef<number | undefined>(undefined)
@@ -29,7 +34,13 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
   const latest = useRef({ filters, onChange })
   latest.current = { filters, onChange }
 
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current)
+      window.clearTimeout(rangeTimer.current)
+    },
+    [],
+  )
 
   function applySearch(value: string) {
     window.clearTimeout(timer.current)
@@ -55,21 +66,36 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
     onChange({ ...filters, levels: LOG_LEVELS.filter((l) => selected.has(l)) })
   }
 
-  function applyCustom(nextFrom: string, nextTo: string) {
+  function commitCustom(nextFrom: string, nextTo: string) {
+    window.clearTimeout(rangeTimer.current)
+    setSettled({ from: nextFrom, to: nextTo })
+    if (customRangeError(nextFrom, nextTo) === null) {
+      const { filters: current, onChange: change } = latest.current
+      change({ ...current, range: { kind: 'custom', from: nextFrom, to: nextTo } })
+    }
+  }
+
+  function editCustom(nextFrom: string, nextTo: string) {
     setFrom(nextFrom)
     setTo(nextTo)
-    if (customRangeError(nextFrom, nextTo) === null) {
-      onChange({ ...filters, range: { kind: 'custom', from: nextFrom, to: nextTo } })
-    }
+    window.clearTimeout(rangeTimer.current)
+    rangeTimer.current = window.setTimeout(
+      () => commitCustom(nextFrom, nextTo),
+      SEARCH_DEBOUNCE_MS,
+    )
   }
 
   function selectCustom() {
     if (customMode) return
     setCustomMode(true)
     // Start from the window being looked at, so choosing Custom shows the same data
-    // and the person only has to adjust it.
+    // and the person only has to adjust it. "All" has no start, so it falls back to
+    // the last hour.
     const minutes = (filters.range.kind === 'preset' ? filters.range.minutes : null) ?? 60
-    applyCustom(toLocalInputValue(new Date(Date.now() - minutes * 60_000)), '')
+    const nextFrom = toLocalInputValue(new Date(Date.now() - minutes * 60_000))
+    setFrom(nextFrom)
+    setTo('')
+    commitCustom(nextFrom, '')
   }
 
   // Until the list loads (or if it fails), keep the selected service as an
@@ -92,6 +118,8 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
                 filters.range.kind === 'preset' && filters.range.minutes === preset.minutes
               }
               onClick={() => {
+                // A pending custom edit must not land after this and undo it.
+                window.clearTimeout(rangeTimer.current)
                 setCustomMode(false)
                 onChange({ ...filters, range: { kind: 'preset', minutes: preset.minutes } })
               }}
@@ -116,7 +144,7 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
               <input
                 type="datetime-local"
                 value={from}
-                onChange={(e) => applyCustom(e.target.value, to)}
+                onChange={(e) => editCustom(e.target.value, to)}
               />
             </label>
             <label className="filter-field">
@@ -125,7 +153,7 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
                 type="datetime-local"
                 value={to}
                 aria-describedby="range-to-hint"
-                onChange={(e) => applyCustom(from, e.target.value)}
+                onChange={(e) => editCustom(from, e.target.value)}
               />
             </label>
             <span id="range-to-hint" className="filter-bar__hint">

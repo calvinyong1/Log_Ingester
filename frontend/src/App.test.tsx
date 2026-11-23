@@ -345,7 +345,12 @@ describe('App', () => {
       /^\d{4}-\d\d-\d\dT\d\d:\d\d$/,
     )
     expect(screen.getByLabelText('To')).toHaveValue('')
-    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    // The default preset also sends a start, so check it is the prefilled From.
+    const fromValue = (screen.getByLabelText('From') as HTMLInputElement).value
+    await waitFor(() => {
+      const start = new URL(logUrls().at(-1) as string).searchParams.get('start')
+      expect(start).toBe(new Date(fromValue).toISOString())
+    })
     expect(logUrls().at(-1)).not.toContain('end=')
   })
 
@@ -400,6 +405,27 @@ describe('App', () => {
     expect(screen.queryByText(/Invalid time value/)).not.toBeInTheDocument()
   })
 
+  it('waits for a pause in typing before applying a custom range, so partial years are not queried', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-21T14:00' } })
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start=2026'))
+
+    // Chrome emits a complete value per keystroke while a year is typed.
+    const to = screen.getByLabelText('To')
+    fireEvent.change(to, { target: { value: '0002-11-21T16:00' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    fireEvent.change(to, { target: { value: '0202-11-21T16:00' } })
+    fireEvent.change(to, { target: { value: '2026-11-21T16:00' } })
+
+    await waitFor(() => expect(logUrls().at(-1)).toContain('end=2026'))
+    expect(logUrls().some((u) => /end=0\d\d\d/.test(u))).toBe(false)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('returns to a sliding preset and hides the inputs', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -410,7 +436,13 @@ describe('App', () => {
 
     expect(screen.queryByLabelText('From')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Custom' })).toHaveAttribute('aria-pressed', 'false')
-    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    // Back to a sliding window: start is about 15 minutes ago, not the custom From.
+    await waitFor(() => {
+      const start = new URL(logUrls().at(-1) as string).searchParams.get('start') as string
+      const minutesAgo = (Date.now() - new Date(start).getTime()) / 60_000
+      expect(minutesAgo).toBeGreaterThan(14)
+      expect(minutesAgo).toBeLessThan(16)
+    })
     expect(logUrls().at(-1)).not.toContain('end=')
   })
 
