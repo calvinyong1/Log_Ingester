@@ -314,6 +314,24 @@ describe('App', () => {
     await waitFor(() => expect(logUrls().at(-1)).not.toContain('q='), { timeout: 200 })
   })
 
+  it('ignores whitespace-only changes to the search: no page reset, no refetch', async () => {
+    const user = userEvent.setup()
+    page = { ...SAMPLE_PAGE, total: 60 }
+    render(<App />)
+    await screen.findByText('Showing 1 to 25 of 60')
+    const box = screen.getByRole('searchbox', { name: 'Search messages' })
+    await user.type(box, 'abc{Enter}')
+    await waitFor(() => expect(logUrls().at(-1)).toContain('q=abc'))
+    await user.click(screen.getByRole('button', { name: 'Older' }))
+    await screen.findByText('Showing 26 to 50 of 60')
+
+    await user.type(box, ' ')
+    await new Promise((r) => setTimeout(r, 500))
+
+    expect(screen.getByText('Showing 26 to 50 of 60')).toBeInTheDocument()
+    expect(logUrls().at(-1)).toContain('offset=25')
+  })
+
   it('stops polling when paused and shows Paused', async () => {
     const user = userEvent.setup()
     render(<App />)

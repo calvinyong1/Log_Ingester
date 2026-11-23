@@ -27,7 +27,10 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
   function applySearch(value: string) {
     window.clearTimeout(timer.current)
     const { filters: current, onChange: change } = latest.current
-    if (value !== current.q) change({ ...current, q: value })
+    // Compare trimmed: the API ignores surrounding whitespace, so a trailing space
+    // would otherwise refetch the same results and send the user back to page 1.
+    const next = value.trim()
+    if (next !== current.q) change({ ...current, q: next })
   }
 
   function onSearchInput(value: string) {
