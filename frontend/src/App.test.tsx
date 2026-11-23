@@ -75,6 +75,18 @@ function respond(url: string): unknown {
   return page
 }
 
+// Slow down responses whose URL contains `match`, to make the window between a click
+// and its response wide enough to act in.
+function stubFetchWithDelay(match: string, ms: number) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes(match)) await new Promise((r) => setTimeout(r, ms))
+      return { ok: true, json: async () => respond(url) }
+    }),
+  )
+}
+
 function logUrls(): string[] {
   const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls
   return calls.map((c) => c[0] as string).filter((u) => u.includes('/logs?'))
@@ -287,6 +299,36 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'ERROR' }))
     await screen.findByText('Page 1')
     expect(logUrls().at(-1)).not.toContain('cursor')
+  })
+
+  it('ignores a second click on Older while the next page is still loading', async () => {
+    const user = userEvent.setup()
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
+    stubFetchWithDelay('cursor=c1', 300)
+    render(<App />)
+    await screen.findByText('Page 1')
+
+    await user.dblClick(screen.getByRole('button', { name: 'Older' }))
+
+    await screen.findByText('Page 2')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(screen.queryByText('Page 3')).not.toBeInTheDocument()
+    expect(await screen.findByText('an older event')).toBeInTheDocument()
+  })
+
+  it('does not carry the old filter\'s cursor into the new filter while it loads', async () => {
+    const user = userEvent.setup()
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
+    stubFetchWithDelay('level=ERROR', 300)
+    render(<App />)
+    await screen.findByText('Page 1')
+
+    await user.click(screen.getByRole('button', { name: 'ERROR' }))
+    // The old filter's response is still on screen here, with its next_cursor.
+    await user.click(screen.getByRole('button', { name: 'Older' }))
+    await new Promise((r) => setTimeout(r, 500))
+
+    expect(logUrls().some((u) => u.includes('level=ERROR') && u.includes('cursor='))).toBe(false)
   })
 
   it('hides paging when everything fits on one page', async () => {

@@ -132,8 +132,12 @@ function App() {
                   <Pagination
                     page={cursors.length + 1}
                     hasOlder={logs.data?.next_cursor != null}
+                    // Until the requested page arrives, data (and its next_cursor) is the
+                    // previous page's: a click now would double-step or page from the
+                    // old filter's position.
+                    busy={!logs.current}
                     onOlder={() => {
-                      const next = logs.data?.next_cursor
+                      const next = logs.current ? logs.data?.next_cursor : null
                       if (next) setCursors((stack) => [...stack, next])
                     }}
                     onNewer={() => setCursors((stack) => stack.slice(0, -1))}

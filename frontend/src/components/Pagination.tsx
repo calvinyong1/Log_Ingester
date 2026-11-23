@@ -1,23 +1,24 @@
 interface PaginationProps {
   page: number // 1-based; page 1 is the newest events
   hasOlder: boolean
+  busy: boolean // the page for the requested position hasn't arrived yet
   onOlder: () => void
   onNewer: () => void
 }
 
 // No total: counting every matching row on each poll is what keyset paging avoids,
 // so the position is "Page N" and the only moves are Newer and Older.
-export function Pagination({ page, hasOlder, onOlder, onNewer }: PaginationProps) {
+export function Pagination({ page, hasOlder, busy, onOlder, onNewer }: PaginationProps) {
   if (page === 1 && !hasOlder) return null
 
   return (
     <nav className="pagination" aria-label="Pagination">
       <span className="pagination__range">Page {page}</span>
       <div className="pagination__controls">
-        <button type="button" className="page-button" disabled={page === 1} onClick={onNewer}>
+        <button type="button" className="page-button" disabled={busy || page === 1} onClick={onNewer}>
           Newer
         </button>
-        <button type="button" className="page-button" disabled={!hasOlder} onClick={onOlder}>
+        <button type="button" className="page-button" disabled={busy || !hasOlder} onClick={onOlder}>
           Older
         </button>
       </div>
