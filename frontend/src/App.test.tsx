@@ -2,10 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import type { Alert, LogEventPage, ServiceErrorRates } from './types'
+import type { Alert, LogEventCursorPage, LogEventPage, ServiceErrorRates } from './types'
 
-const SAMPLE_PAGE: LogEventPage = {
-  total: 2,
+const SAMPLE_PAGE: LogEventCursorPage = {
+  next_cursor: null,
   items: [
     {
       id: 2,
@@ -22,6 +22,20 @@ const SAMPLE_PAGE: LogEventPage = {
       message: 'user logged in',
       timestamp: new Date(Date.now() - 60_000).toISOString(),
       received_at: new Date(Date.now() - 60_000).toISOString(),
+    },
+  ],
+}
+
+const OLDER_PAGE: LogEventCursorPage = {
+  next_cursor: null,
+  items: [
+    {
+      id: 0,
+      service: 'auth-api',
+      level: 'INFO',
+      message: 'an older event',
+      timestamp: new Date(Date.now() - 600_000).toISOString(),
+      received_at: new Date(Date.now() - 600_000).toISOString(),
     },
   ],
 }
@@ -45,7 +59,8 @@ const SAMPLE_HISTOGRAM = {
 }
 
 let rates: ServiceErrorRates = SAMPLE_RATES
-let page: LogEventPage = SAMPLE_PAGE
+let page: LogEventCursorPage = SAMPLE_PAGE
+let olderPage: LogEventCursorPage = OLDER_PAGE
 let serviceNames = ['auth-api', 'checkout']
 let alertItems: Alert[] = []
 let alertEvents: LogEventPage = { items: [], total: 0 }
@@ -56,6 +71,7 @@ function respond(url: string): unknown {
   if (url.includes('/services/error-rates')) return rates
   if (/\/alerts\/\d+\/events/.test(url)) return alertEvents
   if (url.includes('/alerts')) return { items: alertItems, total: alertItems.length }
+  if (url.includes('cursor=c1')) return olderPage
   return page
 }
 
@@ -68,6 +84,7 @@ describe('App', () => {
   beforeEach(() => {
     rates = SAMPLE_RATES
     page = SAMPLE_PAGE
+    olderPage = OLDER_PAGE
     serviceNames = ['auth-api', 'checkout']
     alertItems = []
     alertEvents = { items: [], total: 0 }
@@ -246,26 +263,50 @@ describe('App', () => {
     })
   })
 
-  it('pages with limit and offset, and resets to the first page on a filter change', async () => {
+  it('pages with cursors, and resets to the first page on a filter change', async () => {
     const user = userEvent.setup()
-    page = { ...SAMPLE_PAGE, total: 60 }
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
     render(<App />)
-    await screen.findByText('Showing 1 to 25 of 60')
+    await screen.findByText('Page 1')
+    expect(logUrls().at(-1)).not.toContain('cursor')
     expect(logUrls().at(-1)).not.toContain('offset')
     expect(logUrls().at(-1)).toContain('limit=25')
 
     await user.click(screen.getByRole('button', { name: 'Older' }))
-    await screen.findByText('Showing 26 to 50 of 60')
-    expect(logUrls().at(-1)).toContain('offset=25')
+    await screen.findByText('Page 2')
+    expect(await screen.findByText('an older event')).toBeInTheDocument()
+    expect(logUrls().at(-1)).toContain('cursor=c1')
+    expect(screen.getByRole('button', { name: 'Older' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Newer' }))
-    await screen.findByText('Showing 1 to 25 of 60')
+    await screen.findByText('Page 1')
+    expect(logUrls().at(-1)).not.toContain('cursor')
 
     await user.click(screen.getByRole('button', { name: 'Older' }))
-    await screen.findByText('Showing 26 to 50 of 60')
+    await screen.findByText('Page 2')
     await user.click(screen.getByRole('button', { name: 'ERROR' }))
-    await screen.findByText('Showing 1 to 25 of 60')
-    expect(logUrls().at(-1)).not.toContain('offset')
+    await screen.findByText('Page 1')
+    expect(logUrls().at(-1)).not.toContain('cursor')
+  })
+
+  it('hides paging when everything fits on one page', async () => {
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument()
+  })
+
+  it('still offers Newer on an empty later page', async () => {
+    const user = userEvent.setup()
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
+    olderPage = { items: [], next_cursor: null }
+    render(<App />)
+    await screen.findByText('Page 1')
+
+    await user.click(screen.getByRole('button', { name: 'Older' }))
+
+    await screen.findByText('Page 2')
+    expect(screen.getByRole('button', { name: 'Newer' })).toBeEnabled()
   })
 
   it('filters by several levels at once, and none selected means all levels', async () => {
@@ -316,20 +357,20 @@ describe('App', () => {
 
   it('ignores whitespace-only changes to the search: no page reset, no refetch', async () => {
     const user = userEvent.setup()
-    page = { ...SAMPLE_PAGE, total: 60 }
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
     render(<App />)
-    await screen.findByText('Showing 1 to 25 of 60')
+    await screen.findByText('Page 1')
     const box = screen.getByRole('searchbox', { name: 'Search messages' })
     await user.type(box, 'abc{Enter}')
     await waitFor(() => expect(logUrls().at(-1)).toContain('q=abc'))
     await user.click(screen.getByRole('button', { name: 'Older' }))
-    await screen.findByText('Showing 26 to 50 of 60')
+    await screen.findByText('Page 2')
 
     await user.type(box, ' ')
     await new Promise((r) => setTimeout(r, 500))
 
-    expect(screen.getByText('Showing 26 to 50 of 60')).toBeInTheDocument()
-    expect(logUrls().at(-1)).toContain('offset=25')
+    expect(screen.getByText('Page 2')).toBeInTheDocument()
+    expect(logUrls().at(-1)).toContain('cursor=c1')
   })
 
   it('shows From and To inputs for Custom, prefilled from the current range', async () => {
@@ -356,21 +397,21 @@ describe('App', () => {
 
   it('fetches a fixed window when From and To are set, and resets to page 1', async () => {
     const user = userEvent.setup()
-    page = { ...SAMPLE_PAGE, total: 60 }
+    page = { ...SAMPLE_PAGE, next_cursor: 'c1' }
     render(<App />)
-    await screen.findByText('Showing 1 to 25 of 60')
+    await screen.findByText('Page 1')
     await user.click(screen.getByRole('button', { name: 'Custom' }))
     await user.click(screen.getByRole('button', { name: 'Older' }))
-    await screen.findByText('Showing 26 to 50 of 60')
+    await screen.findByText('Page 2')
 
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-21T14:00' } })
     fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-21T16:30' } })
 
-    await screen.findByText('Showing 1 to 25 of 60')
+    await screen.findByText('Page 1')
     const last = new URL(logUrls().at(-1) as string)
     expect(last.searchParams.get('start')).toBe(new Date('2026-11-21T14:00').toISOString())
     expect(last.searchParams.get('end')).toBe(new Date('2026-11-21T16:31').toISOString())
-    expect(last.searchParams.has('offset')).toBe(false)
+    expect(last.searchParams.has('cursor')).toBe(false)
   })
 
   it('explains an end before the start and does not fetch it', async () => {
