@@ -68,13 +68,13 @@ export function AlertHistory({ alerts, service, error }: AlertHistoryProps) {
 
   return (
     <section className="alert-history" aria-labelledby="alert-history-title">
-      <h2 id="alert-history-title">Alert history</h2>
+      <h2 id="alert-history-title">Alert History</h2>
       <p className="alert-history__hint">
         Saved when an alert fires{service ? ` for ${service}` : ''}. Select one to see its events.
       </p>
 
       {!alerts ? (
-        <p className="alert-history__empty">{error ? 'Alert history unavailable.' : 'Loading…'}</p>
+        <p className="alert-history__empty">{error ? 'Alert History unavailable.' : 'Loading…'}</p>
       ) : alerts.items.length === 0 ? (
         <p className="alert-history__empty">No alerts have fired yet.</p>
       ) : (

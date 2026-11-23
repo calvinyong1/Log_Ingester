@@ -211,6 +211,21 @@
   color: var(--bg-page);
 }
 
+.filter-field--search {
+  flex: 1 1 100%;
+}
+
+.filter-field--search input {
+  min-width: 0;
+  width: 100%;
+}
+
+.level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .filter-bar__fields {
   display: flex;
   flex-wrap: wrap;
@@ -225,7 +240,8 @@
   color: var(--text-muted);
 }
 
-.filter-field select {
+.filter-field select,
+.filter-field input[type='search'] {
   font: inherit;
   font-size: 13px;
   min-height: 44px;
@@ -394,21 +410,22 @@
 
 /* Log table */
 
-.log-section h2 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 10px;
-}
-
-.log-table-scroll {
-  overflow-x: auto;
-}
-
-.log-table-wrapper {
+.log-section {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   overflow: hidden;
+}
+
+.log-section h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  padding: 14px 16px 12px;
+}
+
+.log-table-scroll {
+  overflow-x: auto;
 }
 
 .log-table {
@@ -462,9 +479,7 @@
   font-size: 13px;
   padding: 24px;
   text-align: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  border-top: 1px solid var(--border);
 }
 
 .level-badge {

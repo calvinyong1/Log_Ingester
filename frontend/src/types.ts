@@ -18,7 +18,8 @@ export interface LogEventPage {
 
 export interface LogFilters {
   service: string
-  level: LogLevel | ''
+  levels: LogLevel[] // empty = every level
+  q: string // substring of the message; blank = no search
   rangeMinutes: number | null // null = no lower bound ("All")
 }
 

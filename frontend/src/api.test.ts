@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchErrorRates, fetchHistogram, fetchServices } from './api'
+import { fetchErrorRates, fetchHistogram, fetchLogs, fetchServices } from './api'
 
 const fetchMock = vi.fn()
 
@@ -29,7 +29,7 @@ describe('api', () => {
   it('fetchHistogram sends filters and bucket count', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ buckets: [], total: 0 }) })
     await fetchHistogram(
-      { service: 'checkout', level: 'ERROR', rangeMinutes: 15 },
+      { service: 'checkout', levels: ['ERROR'], q: '', rangeMinutes: 15 },
       { buckets: 12 },
     )
     const url = new URL(fetchMock.mock.calls[0][0])
@@ -42,8 +42,37 @@ describe('api', () => {
 
   it('omits start for the "All" range', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ buckets: [], total: 0 }) })
-    await fetchHistogram({ service: '', level: '', rangeMinutes: null })
+    await fetchHistogram({ service: '', levels: [], q: '', rangeMinutes: null })
     expect(new URL(fetchMock.mock.calls[0][0]).searchParams.has('start')).toBe(false)
+  })
+
+  it('sends one level param per selected level and the trimmed search text', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], total: 0 }) })
+    const filters = {
+      service: '',
+      levels: ['ERROR', 'WARNING'] as ('ERROR' | 'WARNING')[],
+      q: '  timeout ',
+      rangeMinutes: null,
+    }
+
+    await fetchLogs(filters)
+    await fetchHistogram(filters)
+
+    for (const [href] of fetchMock.mock.calls) {
+      const params = new URL(href).searchParams
+      expect(params.getAll('level')).toEqual(['ERROR', 'WARNING'])
+      expect(params.get('q')).toBe('timeout')
+    }
+  })
+
+  it('omits level and q when none are selected or the search is blank', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], total: 0 }) })
+
+    await fetchLogs({ service: '', levels: [], q: '   ', rangeMinutes: null })
+
+    const params = new URL(fetchMock.mock.calls[0][0]).searchParams
+    expect(params.has('level')).toBe(false)
+    expect(params.has('q')).toBe(false)
   })
 
   it('throws with the status on a failed request', async () => {

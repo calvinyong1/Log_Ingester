@@ -20,7 +20,8 @@ import type { LogFilters } from './types'
 
 const DEFAULT_FILTERS: LogFilters = {
   service: '',
-  level: '',
+  levels: [],
+  q: '',
   rangeMinutes: 60,
 }
 
@@ -130,7 +131,7 @@ function App() {
             <ErrorRateChart histogram={histogram.data} />
 
             <section className="log-section">
-              <h2>Recent events</h2>
+              <h2>Recent Events</h2>
               <LogTable
                 events={items}
                 footer={
