@@ -69,7 +69,7 @@ export function ErrorRateChart({ histogram }: ErrorRateChartProps) {
   return (
     <div className="chart-card">
       <div className="chart-card__header">
-        <h2>Events over time</h2>
+        <h2>Events Over Time</h2>
         <ul className="chart-legend">
           {LEVEL_STACK_ORDER.map((level) => (
             <li key={level}>

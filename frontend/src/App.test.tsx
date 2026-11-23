@@ -97,7 +97,7 @@ describe('App', () => {
 
     // Chart renders with a title (Recharts needs a real layout pass, but the
     // card and its heading should always be present).
-    expect(screen.getByText('Events over time')).toBeInTheDocument()
+    expect(screen.getByText('Events Over Time')).toBeInTheDocument()
 
     // Table shows both severity levels with text labels, not color alone
     // ("ERROR"/"INFO" also appear as level filter chips, hence getAllByText).
@@ -217,7 +217,7 @@ describe('App', () => {
     }
     render(<App />)
 
-    const history = await screen.findByRole('region', { name: 'Alert history' })
+    const history = await screen.findByRole('region', { name: 'Alert History' })
     const item = await within(history).findByRole('button', { name: /checkout/ })
     expect(within(history).getByText('80%')).toBeInTheDocument()
     expect(within(history).getByText('8 of 10 events')).toBeInTheDocument()
@@ -235,7 +235,7 @@ describe('App', () => {
   it('shows an empty state when no alerts have fired, and scopes history to the service filter', async () => {
     const user = userEvent.setup()
     render(<App />)
-    const history = await screen.findByRole('region', { name: 'Alert history' })
+    const history = await screen.findByRole('region', { name: 'Alert History' })
     expect(await within(history).findByText('No alerts have fired yet.')).toBeInTheDocument()
 
     await screen.findByRole('option', { name: 'checkout' })
