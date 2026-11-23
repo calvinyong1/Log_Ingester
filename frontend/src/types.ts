@@ -16,11 +16,18 @@ export interface LogEventPage {
   total: number
 }
 
+// A preset slides with the clock ("last 15 min"; null minutes = no lower bound).
+// A custom range is fixed; from/to are datetime-local values ("2026-11-21T14:00",
+// local time) and an empty `to` means "up to now".
+export type TimeRange =
+  | { kind: 'preset'; minutes: number | null }
+  | { kind: 'custom'; from: string; to: string }
+
 export interface LogFilters {
   service: string
   levels: LogLevel[] // empty = every level
   q: string // substring of the message; blank = no search
-  rangeMinutes: number | null // null = no lower bound ("All")
+  range: TimeRange
 }
 
 export interface ServiceErrorRate {

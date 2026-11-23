@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { LEVEL_COLOR } from '../levelStyle'
-import { RANGE_PRESETS } from '../ranges'
+import { RANGE_PRESETS, customRangeError, toLocalInputValue } from '../ranges'
 import type { LogFilters, LogLevel } from '../types'
 import { LOG_LEVELS } from '../types'
 
 // Wait for a pause in typing before querying: each change refetches the table and
-// the chart, so one request per keystroke would be wasteful.
+// the chart, so one request per keystroke would be wasteful. The date inputs need it
+// too: while a year is typed they emit a complete value per keystroke (0002, 0202, ...).
 export const SEARCH_DEBOUNCE_MS = 300
 
 interface FilterBarProps {
@@ -15,6 +16,17 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ filters, services, onChange }: FilterBarProps) {
+  // The From/To inputs are a draft: a half-entered or backwards range is shown
+  // with a message but never applied, so the data on screen is always for a valid one.
+  const [customMode, setCustomMode] = useState(filters.range.kind === 'custom')
+  const [from, setFrom] = useState(filters.range.kind === 'custom' ? filters.range.from : '')
+  const [to, setTo] = useState(filters.range.kind === 'custom' ? filters.range.to : '')
+  // What the message and the query are based on: the draft as it was when typing
+  // paused, so a half-typed year doesn't flash an error or fire a request.
+  const [settled, setSettled] = useState({ from, to })
+  const rangeTimer = useRef<number | undefined>(undefined)
+  const rangeError = customMode ? customRangeError(settled.from, settled.to) : null
+
   const [text, setText] = useState(filters.q)
   const timer = useRef<number | undefined>(undefined)
   // The debounce fires later; it must apply to the filters as they are then, not
@@ -22,7 +34,13 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
   const latest = useRef({ filters, onChange })
   latest.current = { filters, onChange }
 
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current)
+      window.clearTimeout(rangeTimer.current)
+    },
+    [],
+  )
 
   function applySearch(value: string) {
     window.clearTimeout(timer.current)
@@ -48,6 +66,38 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
     onChange({ ...filters, levels: LOG_LEVELS.filter((l) => selected.has(l)) })
   }
 
+  function commitCustom(nextFrom: string, nextTo: string) {
+    window.clearTimeout(rangeTimer.current)
+    setSettled({ from: nextFrom, to: nextTo })
+    if (customRangeError(nextFrom, nextTo) === null) {
+      const { filters: current, onChange: change } = latest.current
+      change({ ...current, range: { kind: 'custom', from: nextFrom, to: nextTo } })
+    }
+  }
+
+  function editCustom(nextFrom: string, nextTo: string) {
+    setFrom(nextFrom)
+    setTo(nextTo)
+    window.clearTimeout(rangeTimer.current)
+    rangeTimer.current = window.setTimeout(
+      () => commitCustom(nextFrom, nextTo),
+      SEARCH_DEBOUNCE_MS,
+    )
+  }
+
+  function selectCustom() {
+    if (customMode) return
+    setCustomMode(true)
+    // Start from the window being looked at, so choosing Custom shows the same data
+    // and the person only has to adjust it. "All" has no start, so it falls back to
+    // the last hour.
+    const minutes = (filters.range.kind === 'preset' ? filters.range.minutes : null) ?? 60
+    const nextFrom = toLocalInputValue(new Date(Date.now() - minutes * 60_000))
+    setFrom(nextFrom)
+    setTo('')
+    commitCustom(nextFrom, '')
+  }
+
   // Until the list loads (or if it fails), keep the selected service as an
   // option so the select never shows a value it can't represent.
   const options =
@@ -57,18 +107,65 @@ export function FilterBar({ filters, services, onChange }: FilterBarProps) {
 
   return (
     <div className="filter-bar" role="group" aria-label="Filters">
-      <div className="filter-bar__presets">
-        {RANGE_PRESETS.map((preset) => (
+      <div className="filter-bar__range">
+        <div className="filter-bar__presets">
+          {RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className="preset-button"
+              aria-pressed={
+                filters.range.kind === 'preset' && filters.range.minutes === preset.minutes
+              }
+              onClick={() => {
+                // A pending custom edit must not land after this and undo it.
+                window.clearTimeout(rangeTimer.current)
+                setCustomMode(false)
+                onChange({ ...filters, range: { kind: 'preset', minutes: preset.minutes } })
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
           <button
-            key={preset.label}
             type="button"
             className="preset-button"
-            aria-pressed={filters.rangeMinutes === preset.minutes}
-            onClick={() => onChange({ ...filters, rangeMinutes: preset.minutes })}
+            aria-pressed={customMode}
+            onClick={selectCustom}
           >
-            {preset.label}
+            Custom
           </button>
-        ))}
+        </div>
+
+        {customMode && (
+          <div className="filter-bar__custom">
+            <label className="filter-field">
+              <span>From</span>
+              <input
+                type="datetime-local"
+                value={from}
+                onChange={(e) => editCustom(e.target.value, to)}
+              />
+            </label>
+            <label className="filter-field">
+              <span>To</span>
+              <input
+                type="datetime-local"
+                value={to}
+                aria-describedby="range-to-hint"
+                onChange={(e) => editCustom(from, e.target.value)}
+              />
+            </label>
+            <span id="range-to-hint" className="filter-bar__hint">
+              Leave To empty for up to now
+            </span>
+            {rangeError && (
+              <p className="filter-bar__error" role="alert">
+                {rangeError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="filter-bar__fields">

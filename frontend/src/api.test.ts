@@ -29,7 +29,7 @@ describe('api', () => {
   it('fetchHistogram sends filters and bucket count', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ buckets: [], total: 0 }) })
     await fetchHistogram(
-      { service: 'checkout', levels: ['ERROR'], q: '', rangeMinutes: 15 },
+      { service: 'checkout', levels: ['ERROR'], q: '', range: { kind: 'preset', minutes: 15 } },
       { buckets: 12 },
     )
     const url = new URL(fetchMock.mock.calls[0][0])
@@ -42,7 +42,7 @@ describe('api', () => {
 
   it('omits start for the "All" range', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ buckets: [], total: 0 }) })
-    await fetchHistogram({ service: '', levels: [], q: '', rangeMinutes: null })
+    await fetchHistogram({ service: '', levels: [], q: '', range: { kind: 'preset', minutes: null } })
     expect(new URL(fetchMock.mock.calls[0][0]).searchParams.has('start')).toBe(false)
   })
 
@@ -52,7 +52,7 @@ describe('api', () => {
       service: '',
       levels: ['ERROR', 'WARNING'] as ('ERROR' | 'WARNING')[],
       q: '  timeout ',
-      rangeMinutes: null,
+      range: { kind: 'preset' as const, minutes: null },
     }
 
     await fetchLogs(filters)
@@ -68,11 +68,42 @@ describe('api', () => {
   it('omits level and q when none are selected or the search is blank', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], total: 0 }) })
 
-    await fetchLogs({ service: '', levels: [], q: '   ', rangeMinutes: null })
+    await fetchLogs({ service: '', levels: [], q: '   ', range: { kind: 'preset', minutes: null } })
 
     const params = new URL(fetchMock.mock.calls[0][0]).searchParams
     expect(params.has('level')).toBe(false)
     expect(params.has('q')).toBe(false)
+  })
+
+  it('sends a custom range as fixed start and end, with the end minute included', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], total: 0 }) })
+
+    await fetchLogs({
+      service: '',
+      levels: [],
+      q: '',
+      range: { kind: 'custom', from: '2026-11-21T14:00', to: '2026-11-21T16:30' },
+    })
+
+    const params = new URL(fetchMock.mock.calls[0][0]).searchParams
+    expect(params.get('start')).toBe(new Date('2026-11-21T14:00').toISOString())
+    // `end` is exclusive on the API, so 16:30 means "through 16:30:59".
+    expect(params.get('end')).toBe(new Date('2026-11-21T16:31').toISOString())
+  })
+
+  it('leaves end off a custom range with no end time, so it runs up to now', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ buckets: [], total: 0 }) })
+
+    await fetchHistogram({
+      service: '',
+      levels: [],
+      q: '',
+      range: { kind: 'custom', from: '2026-11-21T14:00', to: '' },
+    })
+
+    const params = new URL(fetchMock.mock.calls[0][0]).searchParams
+    expect(params.get('start')).toBe(new Date('2026-11-21T14:00').toISOString())
+    expect(params.has('end')).toBe(false)
   })
 
   it('throws with the status on a failed request', async () => {

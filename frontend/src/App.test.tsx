@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -330,6 +330,120 @@ describe('App', () => {
 
     expect(screen.getByText('Showing 26 to 50 of 60')).toBeInTheDocument()
     expect(logUrls().at(-1)).toContain('offset=25')
+  })
+
+  it('shows From and To inputs for Custom, prefilled from the current range', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    expect(screen.queryByLabelText('From')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+
+    expect(screen.getByRole('button', { name: 'Custom' })).toHaveAttribute('aria-pressed', 'true')
+    expect((screen.getByLabelText('From') as HTMLInputElement).value).toMatch(
+      /^\d{4}-\d\d-\d\dT\d\d:\d\d$/,
+    )
+    expect(screen.getByLabelText('To')).toHaveValue('')
+    // The default preset also sends a start, so check it is the prefilled From.
+    const fromValue = (screen.getByLabelText('From') as HTMLInputElement).value
+    await waitFor(() => {
+      const start = new URL(logUrls().at(-1) as string).searchParams.get('start')
+      expect(start).toBe(new Date(fromValue).toISOString())
+    })
+    expect(logUrls().at(-1)).not.toContain('end=')
+  })
+
+  it('fetches a fixed window when From and To are set, and resets to page 1', async () => {
+    const user = userEvent.setup()
+    page = { ...SAMPLE_PAGE, total: 60 }
+    render(<App />)
+    await screen.findByText('Showing 1 to 25 of 60')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    await user.click(screen.getByRole('button', { name: 'Older' }))
+    await screen.findByText('Showing 26 to 50 of 60')
+
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-21T14:00' } })
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-21T16:30' } })
+
+    await screen.findByText('Showing 1 to 25 of 60')
+    const last = new URL(logUrls().at(-1) as string)
+    expect(last.searchParams.get('start')).toBe(new Date('2026-11-21T14:00').toISOString())
+    expect(last.searchParams.get('end')).toBe(new Date('2026-11-21T16:31').toISOString())
+    expect(last.searchParams.has('offset')).toBe(false)
+  })
+
+  it('explains an end before the start and does not fetch it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-21T14:00' } })
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    const before = logUrls().length
+
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-21T13:00' } })
+
+    expect(await screen.findByText('The end time is before the start time')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 200))
+    expect(logUrls().length).toBe(before)
+  })
+
+  it('rejects a start the browser produced but Date cannot read, without calling the API', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    const before = logUrls().length
+
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '202612-11-21T00:00' } })
+
+    expect(await screen.findByText('Enter a valid start time')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 200))
+    expect(logUrls().length).toBe(before)
+    expect(screen.queryByText(/Invalid time value/)).not.toBeInTheDocument()
+  })
+
+  it('waits for a pause in typing before applying a custom range, so partial years are not queried', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start='))
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-21T14:00' } })
+    await waitFor(() => expect(logUrls().at(-1)).toContain('start=2026'))
+
+    // Chrome emits a complete value per keystroke while a year is typed.
+    const to = screen.getByLabelText('To')
+    fireEvent.change(to, { target: { value: '0002-11-21T16:00' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    fireEvent.change(to, { target: { value: '0202-11-21T16:00' } })
+    fireEvent.change(to, { target: { value: '2026-11-21T16:00' } })
+
+    await waitFor(() => expect(logUrls().at(-1)).toContain('end=2026'))
+    expect(logUrls().some((u) => /end=0\d\d\d/.test(u))).toBe(false)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('returns to a sliding preset and hides the inputs', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    await user.click(screen.getByRole('button', { name: 'Custom' }))
+
+    await user.click(screen.getByRole('button', { name: 'Last 15 min' }))
+
+    expect(screen.queryByLabelText('From')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Custom' })).toHaveAttribute('aria-pressed', 'false')
+    // Back to a sliding window: start is about 15 minutes ago, not the custom From.
+    await waitFor(() => {
+      const start = new URL(logUrls().at(-1) as string).searchParams.get('start') as string
+      const minutesAgo = (Date.now() - new Date(start).getTime()) / 60_000
+      expect(minutesAgo).toBeGreaterThan(14)
+      expect(minutesAgo).toBeLessThan(16)
+    })
+    expect(logUrls().at(-1)).not.toContain('end=')
   })
 
   it('stops polling when paused and shows Paused', async () => {

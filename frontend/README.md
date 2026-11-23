@@ -3,7 +3,7 @@
 Vite + React + TypeScript. Polls the backend (`/logs`, `/logs/histogram`,
 `/logs/services`, `/services/error-rates` and `/alerts`) and renders a live
 event feed, a stacked-by-severity time chart, a services rail, alert history,
-and filters (service, level, time range), with Pause and pagination.
+and filters (service, levels, message search, time range including a custom From/To), with Pause and pagination.
 
 ## Develop
 
