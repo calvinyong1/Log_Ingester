@@ -187,13 +187,14 @@ docker compose logs api worker | grep <request-id>
 | `ingest_queue_depth` | jobs waiting for a worker |
 | `ingest_failed_jobs` | jobs that used up their retries |
 | `ingest_queue_wait_seconds` | histogram of the time from enqueue to a worker starting the job (first attempt only) |
+| `rows_pruned_total{table}` | rows the retention prune has deleted from `log_events` and `alerts` |
 
 Prometheus (`localhost:9090`) scrapes it every 15s and Grafana (`localhost:3000`,
 anonymous viewing, admin password from `GRAFANA_ADMIN_PASSWORD`) charts it; the
 dashboard in `monitoring/grafana/dashboards/` is loaded automatically and its
 panels appear in a "Pipeline" section of the React app. Prometheus deletes samples
-older than `METRICS_RETENTION` (default `15d`); it can't follow a database prune,
-so keep the two periods equal once the Postgres retention exists.
+older than `METRICS_RETENTION` (default `15d`); it can't follow the database prune,
+so keep it equal to `RETENTION_DAYS`.
 
 Reading it: a rising `ingest_queue_depth` while the ingest rate is above zero
 means jobs aren't being drained (workers down or too slow); the wait histogram
@@ -203,11 +204,37 @@ at the proxy once deployed. The API keeps its counter in process memory, so run 
 as a single uvicorn process (the Dockerfile does); more would need Prometheus
 multiprocess mode.
 
+## Retention and backups
+
+The worker deletes `log_events` (by event `timestamp`) and `alerts` (by `fired_at`)
+older than `RETENTION_DAYS` (default 15; `0` turns it off). One period covers both
+tables so an alert's event drill-down stays whole in the normal case (events with
+old producer timestamps are pruned by that timestamp, so a backfill can lose its
+drill-down early). The prune re-runs every `PRUNE_INTERVAL_SECONDS` (default
+hourly) in batches of `PRUNE_BATCH_SIZE` rows, each its own transaction. It shares
+the worker with ingest, so one run does at most 20 batches per table and, if that
+wasn't enough, comes back after 10 seconds, letting ingest jobs run in between.
+It reports `rows_pruned_total` on `/metrics`. Run one worker: a second one
+starting at the same time can start a second (harmless, wasteful) prune chain.
+
+Each run schedules the next, so a new `PRUNE_INTERVAL_SECONDS` takes effect after
+the next run, not at worker start. After an ungraceful restart the RQ scheduler can
+be down for a while (it retries its lock on a maintenance timer; about 13 minutes
+in testing), so the next prune is late by that much.
+
+Ingest accepts producer timestamps up to `TIMESTAMP_MAX_AGE_DAYS` (30) old, so with
+the default retention an event stamped 20 days ago is accepted and then pruned on
+the next run.
+
+`scripts/backup.sh` and `scripts/restore.sh` wrap `pg_dump` and `pg_restore`;
+see [docs/backup-restore.md](docs/backup-restore.md).
+
 ## Layout
 
 ```
 backend/    FastAPI app, worker, models, migrations, tests
 frontend/   Vite + React dashboard
+scripts/    pg_dump backup and restore
 docker-compose.yml
 ```
 

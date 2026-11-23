@@ -41,6 +41,9 @@ services:
       LOG_LEVEL: INFO
       LOG_FORMAT: ${LOG_FORMAT:-text}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-15}
+      PRUNE_INTERVAL_SECONDS: ${PRUNE_INTERVAL_SECONDS:-3600}
+      PRUNE_BATCH_SIZE: ${PRUNE_BATCH_SIZE:-5000}
     depends_on:
       db:
         condition: service_healthy

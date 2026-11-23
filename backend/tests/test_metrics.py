@@ -9,7 +9,7 @@ from rq import Queue
 from rq.registry import FailedJobRegistry
 
 from app.main import app
-from app.metrics import INGESTED, QUEUE_WAIT_BUCKETS, record_queue_wait, render
+from app.metrics import INGESTED, QUEUE_WAIT_BUCKETS, record_pruned, record_queue_wait, render
 from app.queue import get_redis_connection
 
 
@@ -134,3 +134,19 @@ def test_no_created_timestamp_series_is_exposed(redis_conn) -> None:
     INGESTED.labels(level="INFO").inc()
 
     assert b"_created" not in render(redis_conn)
+
+
+def test_rows_pruned_counter_is_rendered_per_table(redis_conn) -> None:
+    record_pruned(redis_conn, "log_events", 3)
+    record_pruned(redis_conn, "alerts", 2)
+    record_pruned(redis_conn, "log_events", 4)
+
+    output = render(redis_conn)
+    assert _value(output, "rows_pruned_total", table="log_events") == 7
+    assert _value(output, "rows_pruned_total", table="alerts") == 2
+
+
+def test_rows_pruned_renders_zero_before_any_prune(redis_conn) -> None:
+    output = render(redis_conn)
+    assert _value(output, "rows_pruned_total", table="log_events") == 0
+    assert _value(output, "rows_pruned_total", table="alerts") == 0
