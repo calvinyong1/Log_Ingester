@@ -100,7 +100,7 @@ describe('App', () => {
     expect(screen.getByText('Events over time')).toBeInTheDocument()
 
     // Table shows both severity levels with text labels, not color alone
-    // ("ERROR"/"INFO" also appear as <option>s in the level filter, hence getAllByText).
+    // ("ERROR"/"INFO" also appear as level filter chips, hence getAllByText).
     expect(screen.getAllByText('ERROR').length).toBeGreaterThan(0)
     expect(screen.getAllByText('INFO').length).toBeGreaterThan(0)
   })
@@ -263,9 +263,55 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'Older' }))
     await screen.findByText('Showing 26 to 50 of 60')
-    await user.selectOptions(screen.getByLabelText('Level'), 'ERROR')
+    await user.click(screen.getByRole('button', { name: 'ERROR' }))
     await screen.findByText('Showing 1 to 25 of 60')
     expect(logUrls().at(-1)).not.toContain('offset')
+  })
+
+  it('filters by several levels at once, and none selected means all levels', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    expect(logUrls().at(-1)).not.toContain('level=')
+
+    await user.click(screen.getByRole('button', { name: 'ERROR' }))
+    await user.click(screen.getByRole('button', { name: 'WARNING' }))
+
+    await waitFor(() => expect(logUrls().at(-1)).toContain('level=WARNING&level=ERROR'))
+    expect(screen.getByRole('button', { name: 'ERROR' })).toHaveAttribute('aria-pressed', 'true')
+    const histogramUrls = (fetch as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((u) => u.includes('/logs/histogram'))
+    expect(histogramUrls.at(-1)).toContain('level=WARNING&level=ERROR')
+
+    await user.click(screen.getByRole('button', { name: 'ERROR' }))
+    await user.click(screen.getByRole('button', { name: 'WARNING' }))
+    await waitFor(() => expect(logUrls().at(-1)).not.toContain('level='))
+  })
+
+  it('searches messages after a pause in typing, not on every keystroke', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search messages' }), 'timeout')
+
+    await waitFor(() => expect(logUrls().at(-1)).toContain('q=timeout'))
+    const searched = logUrls().filter((u) => u.includes('q='))
+    expect(searched.every((u) => u.includes('q=timeout'))).toBe(true)
+  })
+
+  it('applies the search at once on Enter and when the box is cleared', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('payment gateway timeout')
+    const box = screen.getByRole('searchbox', { name: 'Search messages' })
+
+    await user.type(box, 'abc{Enter}')
+    await waitFor(() => expect(logUrls().at(-1)).toContain('q=abc'), { timeout: 200 })
+
+    await user.clear(box)
+    await waitFor(() => expect(logUrls().at(-1)).not.toContain('q='), { timeout: 200 })
   })
 
   it('stops polling when paused and shows Paused', async () => {

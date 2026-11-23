@@ -20,7 +20,8 @@ import type { LogFilters } from './types'
 
 const DEFAULT_FILTERS: LogFilters = {
   service: '',
-  level: '',
+  levels: [],
+  q: '',
   rangeMinutes: 60,
 }
 

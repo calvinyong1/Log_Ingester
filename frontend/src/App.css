@@ -211,6 +211,21 @@
   color: var(--bg-page);
 }
 
+.filter-field--search {
+  flex: 1 1 100%;
+}
+
+.filter-field--search input {
+  min-width: 0;
+  width: 100%;
+}
+
+.level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .filter-bar__fields {
   display: flex;
   flex-wrap: wrap;
@@ -225,7 +240,8 @@
   color: var(--text-muted);
 }
 
-.filter-field select {
+.filter-field select,
+.filter-field input[type='search'] {
   font: inherit;
   font-size: 13px;
   min-height: 44px;
