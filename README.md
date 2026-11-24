@@ -38,6 +38,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up --build
 ```
 
+After changing backend code, rebuild just those services with
+`docker compose up -d --build api worker` (their code is baked into the images; the
+frontend source is mounted and hot-reloads).
+
 `.env` (next to `docker-compose.yml`) is gitignored. Compose substitutes
 `API_KEY` from it into the `api` container. If it's missing or empty, every
 `POST /logs` is rejected with `401`.
@@ -244,10 +248,18 @@ docker-compose.yml
 
 - **Move the event store to Elasticsearch at larger scale.** Postgres is enough
   for this workload and keeps ingest transactional (the unique `event_id` makes
-  job retries safe). If volume or message search outgrows it (full-text search,
-  very high sustained ingest, fast aggregations over huge ranges), the plan is
-  to index events in Elasticsearch and keep Postgres for alert history. The
-  rolling error-rate alert already runs on Redis, so it wouldn't change.
+  job retries safe). If volume, retention or message search outgrows it (full-text
+  search, very high sustained ingest, fast aggregations over huge ranges, months of
+  retention), the plan is to index events in Elasticsearch or OpenSearch (with
+  `event_id` as the document id, and index lifecycle management replacing the
+  retention prune) and keep Postgres for alert history. The rolling error-rate
+  alert already runs on Redis, so it wouldn't change. Postgres partitioning plus a
+  `pg_trgm` index is the cheaper step before that, and ClickHouse or Loki are worth
+  comparing if storage cost matters more than search.
+- **Push updates.** The dashboard polls every 3 seconds, which is simple and
+  stateless but costs a few requests per open tab, so many viewers would add load.
+  If that matters, server-sent events that nudge the dashboard to refetch (plus a
+  short shared cache on the read endpoints) are cheaper than websockets.
 - **Deployment.** The project runs locally only. `docker-compose.prod.yml` and
   the `Caddyfile` (HTTPS, one origin, path routing) sketch a single-VM setup,
   but they have never been run against a real server and domain, so treat them
