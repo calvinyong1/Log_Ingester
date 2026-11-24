@@ -106,6 +106,23 @@ describe('api', () => {
     expect(params.has('end')).toBe(false)
   })
 
+  it('sends the cursor when given and never an offset', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [], next_cursor: null }),
+    })
+    const filters = { service: '', levels: [], q: '', range: { kind: 'preset' as const, minutes: null } }
+
+    await fetchLogs(filters, { limit: 25, cursor: 'abc123' })
+    await fetchLogs(filters, { limit: 25 })
+
+    const [withCursor, without] = fetchMock.mock.calls.map((c) => new URL(c[0]).searchParams)
+    expect(withCursor.get('cursor')).toBe('abc123')
+    expect(withCursor.get('limit')).toBe('25')
+    expect(without.has('cursor')).toBe(false)
+    expect(withCursor.has('offset') || without.has('offset')).toBe(false)
+  })
+
   it('throws with the status on a failed request', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 503 })
     await expect(fetchServices()).rejects.toThrow('GET /logs/services failed: 503')

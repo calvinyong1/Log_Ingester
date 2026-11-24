@@ -23,6 +23,13 @@ export type TimeRange =
   | { kind: 'preset'; minutes: number | null }
   | { kind: 'custom'; from: string; to: string }
 
+// GET /logs is cursor-paged: pass next_cursor back to get the next (older) page.
+// It is null on the last page, and there is deliberately no total.
+export interface LogEventCursorPage {
+  items: LogEvent[]
+  next_cursor: string | null
+}
+
 export interface LogFilters {
   service: string
   levels: LogLevel[] // empty = every level

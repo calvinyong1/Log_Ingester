@@ -12,7 +12,7 @@ import { StatusPill } from './components/StatusPill'
 import { useAlerts } from './hooks/useAlerts'
 import { useErrorRates } from './hooks/useErrorRates'
 import { useHistogram } from './hooks/useHistogram'
-import { PAGE_SIZE, useLogs } from './hooks/useLogs'
+import { useLogs } from './hooks/useLogs'
 import { useServices } from './hooks/useServices'
 import { rangeLabel } from './ranges'
 import { buildServiceRows } from './serviceState'
@@ -27,17 +27,18 @@ const DEFAULT_FILTERS: LogFilters = {
 
 function App() {
   const [filters, setFilters] = useState<LogFilters>(DEFAULT_FILTERS)
-  const [offset, setOffset] = useState(0)
+  // Cursors of the pages we've moved past; page 1 (the live, newest page) is the
+  // empty stack, so Older pushes and Newer pops.
+  const [cursors, setCursors] = useState<string[]>([])
   const [paused, setPaused] = useState(false)
 
-  const logs = useLogs(filters, { offset, paused })
+  const logs = useLogs(filters, { cursor: cursors.at(-1) ?? null, paused })
   const histogram = useHistogram(filters, { paused })
   const { data: services } = useServices({ paused })
   const rates = useErrorRates({ paused })
   const alertHistory = useAlerts(filters.service, { paused })
 
   const items = logs.data?.items ?? []
-  const total = logs.data?.total ?? 0
   const error = logs.error ?? histogram.error ?? rates.error ?? null
 
   const rows = useMemo(
@@ -50,7 +51,7 @@ function App() {
   // result set would show an arbitrary slice.
   function changeFilters(next: LogFilters) {
     setFilters(next)
-    setOffset(0)
+    setCursors([])
   }
 
   // A service with no events left drops out of the list; don't keep filtering
@@ -58,16 +59,9 @@ function App() {
   useEffect(() => {
     if (services && filters.service && !services.includes(filters.service)) {
       setFilters((f) => ({ ...f, service: '' }))
-      setOffset(0)
+      setCursors([])
     }
   }, [services, filters.service])
-
-  // The range slides with the clock, so the result set can shrink under us.
-  useEffect(() => {
-    if (logs.data && offset > 0 && offset >= logs.data.total) {
-      setOffset(Math.max(0, (Math.ceil(logs.data.total / PAGE_SIZE) - 1) * PAGE_SIZE))
-    }
-  }, [logs.data, offset])
 
   return (
     <div className="app">
@@ -135,7 +129,19 @@ function App() {
               <LogTable
                 events={items}
                 footer={
-                  <Pagination offset={offset} pageSize={PAGE_SIZE} total={total} onChange={setOffset} />
+                  <Pagination
+                    page={cursors.length + 1}
+                    hasOlder={logs.data?.next_cursor != null}
+                    // Until the requested page arrives, data (and its next_cursor) is the
+                    // previous page's: a click now would double-step or page from the
+                    // old filter's position.
+                    busy={!logs.current}
+                    onOlder={() => {
+                      const next = logs.current ? logs.data?.next_cursor : null
+                      if (next) setCursors((stack) => [...stack, next])
+                    }}
+                    onNewer={() => setCursors((stack) => stack.slice(0, -1))}
+                  />
                 }
               />
             </section>

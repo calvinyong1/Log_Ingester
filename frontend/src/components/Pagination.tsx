@@ -1,36 +1,24 @@
 interface PaginationProps {
-  offset: number
-  pageSize: number
-  total: number
-  onChange: (offset: number) => void
+  page: number // 1-based; page 1 is the newest events
+  hasOlder: boolean
+  busy: boolean // the page for the requested position hasn't arrived yet
+  onOlder: () => void
+  onNewer: () => void
 }
 
-export function Pagination({ offset, pageSize, total, onChange }: PaginationProps) {
-  if (total === 0) return null
-
-  const first = offset + 1
-  const last = Math.min(offset + pageSize, total)
+// No total: counting every matching row on each poll is what keyset paging avoids,
+// so the position is "Page N" and the only moves are Newer and Older.
+export function Pagination({ page, hasOlder, busy, onOlder, onNewer }: PaginationProps) {
+  if (page === 1 && !hasOlder) return null
 
   return (
     <nav className="pagination" aria-label="Pagination">
-      <span className="pagination__range">
-        Showing {first.toLocaleString()} to {last.toLocaleString()} of {total.toLocaleString()}
-      </span>
+      <span className="pagination__range">Page {page}</span>
       <div className="pagination__controls">
-        <button
-          type="button"
-          className="page-button"
-          disabled={offset <= 0}
-          onClick={() => onChange(Math.max(0, offset - pageSize))}
-        >
+        <button type="button" className="page-button" disabled={busy || page === 1} onClick={onNewer}>
           Newer
         </button>
-        <button
-          type="button"
-          className="page-button"
-          disabled={last >= total}
-          onClick={() => onChange(offset + pageSize)}
-        >
+        <button type="button" className="page-button" disabled={busy || !hasOlder} onClick={onOlder}>
           Older
         </button>
       </div>

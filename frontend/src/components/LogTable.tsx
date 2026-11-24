@@ -19,7 +19,14 @@ function formatTime(iso: string): string {
 
 export function LogTable({ events, footer }: LogTableProps) {
   if (events.length === 0) {
-    return <div className="log-table__empty">No events match the current filters.</div>
+    // The footer stays: on a later page that has emptied out (the range slid, or the
+    // events were pruned) the paging controls are the way back.
+    return (
+      <>
+        <div className="log-table__empty">No events match the current filters.</div>
+        {footer}
+      </>
+    )
   }
 
   return (

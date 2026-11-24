@@ -8,6 +8,9 @@ export interface PollingResult<T> {
   refreshing: boolean // true while any request is in flight
   error: string | null
   lastUpdated: Date | null
+  // The `key` that `data` was fetched for. While a new key is loading, `data` is still
+  // the previous key's, so callers compare this to the key they asked for.
+  dataKey: string | null
 }
 
 interface PollingOptions {
@@ -32,6 +35,7 @@ export function usePolling<T>(
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [dataKey, setDataKey] = useState<string | null>(null)
 
   // Callers pass inline closures; a ref keeps the loop from restarting on
   // every render.
@@ -53,6 +57,7 @@ export function usePolling<T>(
         const next = await fetcherRef.current(controller.signal)
         if (cancelled) return
         setData(next)
+        setDataKey(key)
         setError(null)
         setLastUpdated(new Date())
       } catch (err) {
@@ -75,5 +80,5 @@ export function usePolling<T>(
     }
   }, [paused, intervalMs, key])
 
-  return { data, loading, refreshing, error, lastUpdated }
+  return { data, loading, refreshing, error, lastUpdated, dataKey }
 }

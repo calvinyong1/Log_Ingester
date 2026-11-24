@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime, timedelta
 from unittest import mock
 
@@ -103,19 +104,19 @@ async def test_list_filters_and_orders(
     r = await client.get("/logs")
     assert r.status_code == 200
     page = r.json()
-    assert page["total"] == 3
+    assert len(page["items"]) == 3
     assert [item["message"] for item in page["items"]] == ["m3", "m2", "m1"]
 
     # Filter by service.
     r = await client.get("/logs", params={"service": "a"})
     page = r.json()
-    assert page["total"] == 2
+    assert len(page["items"]) == 2
     assert {item["message"] for item in page["items"]} == {"m1", "m2"}
 
     # Filter by level.
     r = await client.get("/logs", params={"level": "ERROR"})
     page = r.json()
-    assert page["total"] == 2
+    assert len(page["items"]) == 2
     assert {item["message"] for item in page["items"]} == {"m2", "m3"}
 
     # Time-range filter is [start, end).
@@ -124,32 +125,8 @@ async def test_list_filters_and_orders(
         params={"start": "2026-04-25T11:00:00Z", "end": "2026-04-25T12:00:00Z"},
     )
     page = r.json()
-    assert page["total"] == 1
+    assert len(page["items"]) == 1
     assert page["items"][0]["message"] == "m2"
-
-
-async def test_list_paginates(
-    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    for i in range(5):
-        await _seed(
-            session_factory,
-            service="svc",
-            level="INFO",
-            message=f"m{i}",
-            timestamp=f"2026-04-25T10:0{i}:00Z",
-        )
-
-    r = await client.get("/logs", params={"limit": 2, "offset": 0})
-    page = r.json()
-    assert page["total"] == 5
-    assert len(page["items"]) == 2
-    assert page["items"][0]["message"] == "m4"  # newest
-    assert page["items"][1]["message"] == "m3"
-
-    r = await client.get("/logs", params={"limit": 2, "offset": 2})
-    page = r.json()
-    assert [item["message"] for item in page["items"]] == ["m2", "m1"]
 
 
 async def test_health(client: AsyncClient) -> None:
@@ -419,7 +396,7 @@ async def test_list_filters_by_several_levels(
     r = await client.get("/logs", params={"level": ["ERROR", "WARNING"]})
 
     page = r.json()
-    assert page["total"] == 2
+    assert len(page["items"]) == 2
     assert {item["message"] for item in page["items"]} == {"error", "warning"}
 
 
@@ -431,7 +408,7 @@ async def test_duplicate_levels_are_harmless(
     r = await client.get("/logs", params={"level": ["ERROR", "ERROR"]})
 
     page = r.json()
-    assert page["total"] == 1
+    assert len(page["items"]) == 1
     assert page["items"][0]["message"] == "error"
 
 
@@ -479,7 +456,7 @@ async def _messages(client: AsyncClient, **params: object) -> tuple[int, set[str
     r = await client.get("/logs", params=params)
     assert r.status_code == 200, r.text
     page = r.json()
-    return page["total"], {item["message"] for item in page["items"]}
+    return len(page["items"]), {item["message"] for item in page["items"]}
 
 
 async def test_search_is_a_case_insensitive_substring(
@@ -542,3 +519,117 @@ async def test_histogram_respects_search_and_starts_at_first_match(
 
     assert body["total"] == 1
     assert body["buckets"][0]["start"] >= "2026-04-25T12:00:00Z"
+
+
+async def _walk(client: AsyncClient, **params: object) -> list[list[dict]]:
+    """Follow next_cursor from the first page until it is null."""
+    pages = []
+    cursor = None
+    for _ in range(50):
+        query = dict(params)
+        if cursor:
+            query["cursor"] = cursor
+        r = await client.get("/logs", params=query)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == {"items", "next_cursor"}
+        pages.append(body["items"])
+        cursor = body["next_cursor"]
+        if cursor is None:
+            return pages
+    raise AssertionError("cursor walk did not end")
+
+
+async def test_cursor_walk_visits_every_event_once(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    # Five events share one timestamp, so the page boundaries fall inside a tie.
+    await _seed_messages(
+        session_factory, "o1", "o2", timestamp="2026-04-25T10:00:00Z"
+    )
+    await _seed_messages(
+        session_factory, "t1", "t2", "t3", "t4", "t5", timestamp="2026-04-25T11:00:00Z"
+    )
+
+    pages = await _walk(client, limit=2)
+
+    ids = [item["id"] for page in pages for item in page]
+    assert len(ids) == len(set(ids)) == 7
+    # Newest first; ties are broken by descending id.
+    assert [i["message"] for page in pages for i in page] == [
+        "t5", "t4", "t3", "t2", "t1", "o2", "o1",
+    ]  # fmt: skip
+    assert [len(p) for p in pages] == [2, 2, 2, 1]
+
+
+async def test_next_cursor_is_null_when_the_last_page_is_exactly_full(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "a", "b", "c", "d")
+
+    first = (await client.get("/logs", params={"limit": 2})).json()
+    second = (
+        await client.get("/logs", params={"limit": 2, "cursor": first["next_cursor"]})
+    ).json()
+
+    assert first["next_cursor"] is not None
+    assert len(second["items"]) == 2
+    assert second["next_cursor"] is None
+
+
+async def test_no_cursor_when_everything_fits_on_one_page(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "a", "b")
+
+    body = (await client.get("/logs", params={"limit": 2})).json()
+
+    assert len(body["items"]) == 2
+    assert body["next_cursor"] is None
+
+
+@pytest.mark.parametrize("cursor", ["garbage", "!!!", "x" * 201])
+async def test_invalid_cursor_is_a_422(client: AsyncClient, cursor: str) -> None:
+    r = await client.get("/logs", params={"cursor": cursor})
+
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "raw", ["0001-01-01T00:00:00+01:00|5", "9999-12-31T23:59:59-01:00|5"]
+)
+async def test_cursor_timestamp_outside_utc_range_is_a_422(
+    client: AsyncClient, raw: str
+) -> None:
+    cursor = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    r = await client.get("/logs", params={"cursor": cursor})
+
+    assert r.status_code == 422
+
+
+async def test_cursor_walk_keeps_filters(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(session_factory, "a1", "a2", "a3", service="a")
+    await _seed_messages(session_factory, "b1", "b2", service="b")
+
+    pages = await _walk(client, service="a", limit=1)
+
+    assert [i["message"] for p in pages for i in p] == ["a3", "a2", "a1"]
+    assert {i["service"] for p in pages for i in p} == {"a"}
+
+
+async def test_deeper_page_is_stable_when_newer_events_arrive(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _seed_messages(
+        session_factory, "old1", "old2", "old3", timestamp="2026-04-25T10:00:00Z"
+    )
+    cursor = (await client.get("/logs", params={"limit": 1})).json()["next_cursor"]
+    before = (await client.get("/logs", params={"limit": 2, "cursor": cursor})).json()
+
+    await _seed_messages(session_factory, "newest", timestamp="2026-04-25T13:00:00Z")
+    after = (await client.get("/logs", params={"limit": 2, "cursor": cursor})).json()
+
+    assert after == before

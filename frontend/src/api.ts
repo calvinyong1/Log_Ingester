@@ -1,5 +1,6 @@
 import type {
   AlertPage,
+  LogEventCursorPage,
   LogEventPage,
   LogFilters,
   LogHistogram,
@@ -34,11 +35,15 @@ function filterParams(filters: LogFilters): URLSearchParams {
 
 export async function fetchLogs(
   filters: LogFilters,
-  { limit = 200, offset = 0, signal }: { limit?: number; offset?: number; signal?: AbortSignal } = {},
-): Promise<LogEventPage> {
+  {
+    limit = 200,
+    cursor,
+    signal,
+  }: { limit?: number; cursor?: string | null; signal?: AbortSignal } = {},
+): Promise<LogEventCursorPage> {
   const params = filterParams(filters)
   params.set('limit', String(limit))
-  if (offset > 0) params.set('offset', String(offset))
+  if (cursor) params.set('cursor', cursor)
 
   const res = await fetch(`${API_URL}/logs?${params.toString()}`, { signal })
   if (!res.ok) {

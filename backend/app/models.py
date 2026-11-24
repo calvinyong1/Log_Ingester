@@ -17,13 +17,16 @@ class LogEvent(Base):
     level: Mapped[str] = mapped_column(String(16), index=True)
     message: Mapped[str] = mapped_column(Text)
     # Event time as reported by the producer (server fills if missing).
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
         Index("ix_log_events_service_level_ts", "service", "level", "timestamp"),
+        # Backs GET /logs's keyset order (timestamp DESC, id DESC) and replaces the
+        # single-column timestamp index, which this one covers as its leading column.
+        Index("ix_log_events_timestamp_id", "timestamp", "id"),
     )
 
 
